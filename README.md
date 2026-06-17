@@ -1,15 +1,11 @@
-# Club Operations Slack Agent
+# Club Operations Ingestion API
 
-A FastAPI service with Slack Bolt wired in for a future club handover assistant.
-The first version confirms the Slack app can receive mentions and direct
-messages, then responds with a placeholder while the knowledge layer is built.
+A FastAPI service for future student organization document and spreadsheet
+ingestion webhooks.
 
 ## Requirements
 
 - Docker and Docker Compose
-- Slack app credentials:
-  - Bot token (`xoxb-...`)
-  - Signing secret
 
 ## Local setup
 
@@ -19,41 +15,36 @@ Create a local environment file:
 cp .env.example .env
 ```
 
-Fill in `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` then run:
+Fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY`, then run:
 
 ```bash
 docker compose up --build
 ```
 
-The API will be available at `http://localhost:8000`.
+The ingestion API will be available at `http://localhost:8000`.
 
-`SLACK_TOKEN_VERIFICATION_ENABLED` defaults to `false` so the app can start
-locally without calling Slack during boot. Set it to `true` later if you want
-startup to fail fast when the bot token is invalid.
-
-Check the service:
+Check the ingestion API:
 
 ```bash
 curl http://localhost:8000/health
 ```
 
-## Slack setup
+## Ingestion setup
 
-In the Slack app configuration:
+The ingestion API currently provides placeholder endpoints for later document
+and spreadsheet sync logic:
 
-1. Add bot scopes:
-   - `app_mentions:read`
-   - `chat:write`
-   - `im:history`
-   - `im:read`
-2. Enable Event Subscriptions.
-3. Set the request URL to your public tunnel URL plus `/slack/events`.
-   For local development, expose the Docker service with a tunnel such as
-   ngrok or Cloudflare Tunnel.
-4. Subscribe to bot events:
-   - `app_mention`
-   - `message.im`
-5. Install or reinstall the app to the workspace after changing scopes.
+```bash
+curl -X POST http://localhost:8000/webhooks/documents \
+  -H "Content-Type: application/json" \
+  -d '{"document_id":"example"}'
+
+curl -X POST http://localhost:8000/webhooks/spreadsheets \
+  -H "Content-Type: application/json" \
+  -d '{"spreadsheet_id":"example"}'
+```
+
+These endpoints acknowledge payloads but do not write to Supabase yet.
 
 ## Development
 
@@ -66,4 +57,5 @@ pip install -r requirements.txt
 pytest
 ```
 
-The main app lives in `app/main.py`; Slack handlers live in `app/slack_app.py`.
+Ingestion routes live in `ingestion_api/main.py`; shared settings live in
+`common/config.py`.
