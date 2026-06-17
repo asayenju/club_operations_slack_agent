@@ -19,7 +19,7 @@ Create a local environment file:
 cp .env.example .env
 ```
 
-Fill in `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET`, then run:
+Fill in `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` then run:
 
 ```bash
 docker compose up --build
