@@ -9,3 +9,11 @@ services:
       - ./common:/app/common
       - ./ingestion_api:/app/ingestion_api
     command: sh -c "uvicorn ingestion_api.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  slack-bot:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./student-org-agent:/app/student-org-agent
+    command: sh -c "python /app/student-org-agent/app.py"
