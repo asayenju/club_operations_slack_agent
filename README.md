@@ -112,3 +112,7 @@ docker compose build slack-bot
 
 Ingestion routes live in `ingestion_api/main.py`; shared settings live in
 `common/config.py`.
+
+## Reference documentation
+
+- [Slack Bolt for Python](docs/slack-bolt-python-reference.md)
