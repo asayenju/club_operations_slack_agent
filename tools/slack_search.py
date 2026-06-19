@@ -3,7 +3,42 @@ from typing import Any
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from retrieval.models import RetrievedChunk
+from tools.models import RetrievedChunk
+
+
+SLACK_RTS_SEARCH_TOOL = {
+    "name": "search_slack_public_context",
+    "description": (
+        "Search public Slack messages in real time using Slack's "
+        "assistant.search.context API. Requires a short-lived Slack action_token "
+        "from the current Slack interaction. Never log or expose the action_token."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The natural-language search query to run against public Slack messages.",
+            },
+            "action_token": {
+                "type": "string",
+                "description": (
+                    "Sensitive short-lived Slack action token from the current "
+                    "Slack interaction. Required for bot-token real-time search."
+                ),
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of Slack chunks to return. Defaults to 10 and is clamped to 20.",
+                "default": 10,
+                "minimum": 1,
+                "maximum": 20,
+            },
+        },
+        "required": ["query", "action_token"],
+        "additionalProperties": False,
+    },
+}
 
 
 class SlackSearchError(RuntimeError):

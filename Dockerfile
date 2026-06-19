@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt -r student-org-agent/requirem
 
 COPY common ./common
 COPY ingestion_api ./ingestion_api
-COPY retrieval ./retrieval
+COPY tools ./tools
 COPY student-org-agent ./student-org-agent
 
 EXPOSE 8000

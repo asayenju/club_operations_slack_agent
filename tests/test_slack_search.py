@@ -1,6 +1,10 @@
 import pytest
 
-from retrieval.slack_search import SlackSearchError, search_slack_public_context
+from tools.slack_search import (
+    SLACK_RTS_SEARCH_TOOL,
+    SlackSearchError,
+    search_slack_public_context,
+)
 
 
 class FakeSlackClient:
@@ -11,6 +15,22 @@ class FakeSlackClient:
     def api_call(self, method, json):
         self.calls.append({"method": method, "json": json})
         return self.response
+
+
+def test_slack_rts_tool_metadata_is_claude_compatible():
+    assert SLACK_RTS_SEARCH_TOOL["name"] == "search_slack_public_context"
+    assert "description" in SLACK_RTS_SEARCH_TOOL
+
+    input_schema = SLACK_RTS_SEARCH_TOOL["input_schema"]
+    assert input_schema["type"] == "object"
+    assert input_schema["required"] == ["query", "action_token"]
+    assert input_schema["additionalProperties"] is False
+    assert "query" in input_schema["properties"]
+    assert "action_token" in input_schema["properties"]
+    assert "limit" in input_schema["properties"]
+    assert input_schema["properties"]["limit"]["default"] == 10
+    assert input_schema["properties"]["limit"]["maximum"] == 20
+    assert "Sensitive" in input_schema["properties"]["action_token"]["description"]
 
 
 def test_search_slack_public_context_normalizes_messages():
