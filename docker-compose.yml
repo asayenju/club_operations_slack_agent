@@ -15,5 +15,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./common:/app/common
+      - ./decisions:/app/decisions
       - ./student-org-agent:/app/student-org-agent
     command: sh -c "python /app/student-org-agent/app.py"

@@ -15,7 +15,7 @@ Create a local environment file:
 cp .env.example .env
 ```
 
-Fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY`, then run:
+Fill in the required values in `.env`, then run:
 
 ```bash
 docker compose up --build
@@ -26,8 +26,22 @@ The Slack bot will connect using Socket Mode when `SLACK_BOT_TOKEN` and
 `SLACK_APP_TOKEN` are set in `.env`.
 
 The active Slack bot is currently a simple Bolt test app that responds to
-messages containing `hello`. Slack Real-time Search is implemented separately
-under `tools/` as a function/tool for a future LLM integration.
+messages containing `hello`. It also supports `/decide` for recording club
+decisions into the existing Supabase `documents` table. Slack Real-time Search
+is implemented separately under `tools/` as a function/tool for a future LLM
+integration.
+
+Required `.env` values for `/decide`:
+
+```bash
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+VOYAGE_API_KEY=...
+VOYAGE_EMBED_MODEL=...
+```
+
+Do not expose `SUPABASE_SERVICE_ROLE_KEY` or `VOYAGE_API_KEY` to clients. They
+are server-side values used by the Slack bot container.
 
 Check the ingestion API:
 
@@ -49,6 +63,19 @@ hello
 
 You can also test it in Slack by sending `hello` in a channel or DM where the
 bot is present.
+
+Test `/decide` in Slack:
+
+```text
+/decide We approved $300 for tabling supplies.
+```
+
+On success, the bot posts a public confirmation that echoes the decision. Empty
+input, duplicate content, embedding failures, and database failures are shown
+only to the user who ran the command.
+
+The Slack app manifest includes `/decide`, but the Slack app must be updated or
+reinstalled for the slash command to appear in the workspace.
 
 ## Slack RTS tool
 

@@ -11,7 +11,15 @@
     "bot_user": {
       "display_name": "student-org-agent",
       "always_online": true
-    }
+    },
+    "slash_commands": [
+      {
+        "command": "/decide",
+        "description": "Record a club decision",
+        "usage_hint": "We approved the spring budget.",
+        "should_escape": false
+      }
+    ]
   },
   "oauth_config": {
     "scopes": {
@@ -19,6 +27,7 @@
         "app_mentions:read",
         "channels:history",
         "chat:write",
+        "commands",
         "im:history",
         "search:read.public"
       ]

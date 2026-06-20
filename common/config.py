@@ -16,6 +16,10 @@ class SlackSettings(BaseAppSettings):
     slack_bot_token: str
     slack_app_token: str
     slack_token_verification_enabled: bool = False
+    supabase_url: str
+    supabase_service_role_key: str
+    voyage_api_key: str
+    voyage_embed_model: str
 
 
 class IngestionSettings(BaseAppSettings):
