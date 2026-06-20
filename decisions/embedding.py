@@ -28,7 +28,7 @@ class VoyageEmbeddingClient:
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },
-                json={"input": [text], "model": self.model},
+                json={"input": [text], "model": self.model, "input_type": "document"},
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:

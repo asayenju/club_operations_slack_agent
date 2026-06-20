@@ -1,5 +1,6 @@
 import os
 
+from pydantic import ValidationError
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
@@ -49,6 +50,12 @@ def handle_decide_command(ack, command, respond):
     try:
         service = build_decision_service()
         service.store_decision(command)
+    except ValidationError:
+        respond(
+            response_type="ephemeral",
+            text="I couldn't store that decision: `/decide` is missing required server configuration.",
+        )
+        return
     except DecisionAlreadyStored:
         respond(
             response_type="ephemeral",

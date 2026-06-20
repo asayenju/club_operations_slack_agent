@@ -40,8 +40,12 @@ VOYAGE_API_KEY=...
 VOYAGE_EMBED_MODEL=...
 ```
 
-Do not expose `SUPABASE_SERVICE_ROLE_KEY` or `VOYAGE_API_KEY` to clients. They
-are server-side values used by the Slack bot container.
+`SUPABASE_SERVICE_KEY` is also accepted as an alias for
+`SUPABASE_SERVICE_ROLE_KEY`. If `VOYAGE_EMBED_MODEL` is not set, the bot uses
+`voyage-4-lite`.
+
+Do not expose the Supabase service key or `VOYAGE_API_KEY` to clients. They are
+server-side values used by the Slack bot container.
 
 Check the ingestion API:
 
