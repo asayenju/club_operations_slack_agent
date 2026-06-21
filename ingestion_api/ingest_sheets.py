@@ -9,6 +9,11 @@ from ingestion_api.driveSheet import list_all_sheets
 from ingestion_api.embeddings import embed_documents, to_pgvector
 from ingestion_api.google_sheets import fetch_sheet_rows, row_to_text
 
+"""
+document_repo and embedding will be called from Amen's branch
+"""
+
+
 GOOGLE_SHEET_SOURCE = "gsheet"
 
 
