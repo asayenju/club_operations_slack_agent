@@ -21,15 +21,17 @@ def test_voyage_embedding_client_sends_document_input_type():
     http_client = FakeHTTPClient()
     client = VoyageEmbeddingClient(
         api_key="voyage-key",
-        model="voyage-4-lite",
+        model="voyage-3.5-lite",
+        output_dimension=1024,
         http_client=http_client,
     )
 
     assert client.embed("We approved snacks.") == [0.1, 0.2]
     assert http_client.calls[0]["json"] == {
         "input": ["We approved snacks."],
-        "model": "voyage-4-lite",
+        "model": "voyage-3.5-lite",
         "input_type": "document",
+        "output_dimension": 1024,
     }
     assert http_client.calls[0]["headers"]["Authorization"] == "Bearer voyage-key"
 

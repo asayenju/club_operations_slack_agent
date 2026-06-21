@@ -84,6 +84,7 @@ def build_decision_service() -> DecisionService:
     embedding_client = VoyageEmbeddingClient(
         api_key=settings.voyage_api_key,
         model=settings.voyage_embed_model,
+        output_dimension=settings.voyage_embed_dimension,
     )
     return DecisionService(
         documents_repository=repository,

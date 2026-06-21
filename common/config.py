@@ -25,7 +25,8 @@ class SlackSettings(BaseAppSettings):
         )
     )
     voyage_api_key: str
-    voyage_embed_model: str = "voyage-4-lite"
+    voyage_embed_model: str = "voyage-3.5-lite"
+    voyage_embed_dimension: int = 1024
 
 
 class IngestionSettings(BaseAppSettings):

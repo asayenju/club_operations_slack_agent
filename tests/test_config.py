@@ -11,4 +11,5 @@ def test_slack_settings_accepts_supabase_service_key_alias(monkeypatch):
     settings = SlackSettings(_env_file=None)
 
     assert settings.supabase_service_role_key == "service-key"
-    assert settings.voyage_embed_model == "voyage-4-lite"
+    assert settings.voyage_embed_model == "voyage-3.5-lite"
+    assert settings.voyage_embed_dimension == 1024

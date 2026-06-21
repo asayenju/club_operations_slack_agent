@@ -12,11 +12,13 @@ class VoyageEmbeddingClient:
         self,
         api_key: str,
         model: str,
+        output_dimension: int,
         timeout: float = 15.0,
         http_client: httpx.Client | None = None,
     ):
         self.api_key = api_key
         self.model = model
+        self.output_dimension = output_dimension
         self.timeout = timeout
         self.http_client = http_client or httpx.Client(timeout=timeout)
 
@@ -28,7 +30,12 @@ class VoyageEmbeddingClient:
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },
-                json={"input": [text], "model": self.model, "input_type": "document"},
+                json={
+                    "input": [text],
+                    "model": self.model,
+                    "input_type": "document",
+                    "output_dimension": self.output_dimension,
+                },
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:
