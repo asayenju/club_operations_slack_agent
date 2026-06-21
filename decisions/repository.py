@@ -15,18 +15,18 @@ class SupabaseDocumentsRepository:
     ) -> "SupabaseDocumentsRepository":
         return cls(create_client(supabase_url, supabase_service_role_key))
 
-    def find_by_content_hash(self, content_hash: str) -> dict[str, Any] | None:
+    def find_by_chunk_key(self, chunk_key: str) -> dict[str, Any] | None:
         response = (
             self.client.table("documents")
             .select("id,content_hash,chunk_key")
-            .eq("content_hash", content_hash)
+            .eq("chunk_key", chunk_key)
             .limit(1)
             .execute()
         )
         rows = response.data or []
         return rows[0] if rows else None
 
-    def insert(self, payload: dict[str, Any]) -> dict[str, Any]:
-        response = self.client.table("documents").insert(payload).execute()
+    def insert_many(self, payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        response = self.client.table("documents").insert(payloads).execute()
         rows = response.data or []
-        return rows[0] if rows else payload
+        return rows if rows else payloads

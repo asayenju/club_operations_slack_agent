@@ -3,24 +3,33 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, Protocol
 
+from decisions.chunking import DecisionChunk, DecisionChunker, SentenceDecisionChunker
+
 
 class EmbeddingClient(Protocol):
     def embed(self, text: str) -> list[float]:
         ...
 
-
-class DocumentsRepository(Protocol):
-    def find_by_content_hash(self, content_hash: str) -> dict[str, Any] | None:
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
         ...
 
-    def insert(self, payload: dict[str, Any]) -> dict[str, Any]:
+
+class DocumentsRepository(Protocol):
+    def find_by_chunk_key(self, chunk_key: str) -> dict[str, Any] | None:
+        ...
+
+    def insert_many(self, payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ...
 
 
 @dataclass(frozen=True)
 class DecisionRecord:
-    payload: dict[str, Any]
-    inserted: dict[str, Any]
+    payloads: list[dict[str, Any]]
+    inserted: list[dict[str, Any]]
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        return self.payloads[0]
 
 
 class DecisionAlreadyStored(RuntimeError):
@@ -34,9 +43,11 @@ class DecisionService:
         self,
         documents_repository: DocumentsRepository,
         embedding_client: EmbeddingClient,
+        chunker: DecisionChunker | None = None,
     ):
         self.documents_repository = documents_repository
         self.embedding_client = embedding_client
+        self.chunker = chunker or SentenceDecisionChunker()
 
     def store_decision(
         self,
@@ -47,21 +58,35 @@ class DecisionService:
         if not content:
             raise ValueError("decision text must not be empty")
 
-        content_hash = hash_content(content)
-        existing = self.documents_repository.find_by_content_hash(content_hash)
+        decision_hash = hash_content(content)
+        chunks = self.chunker.chunk(content)
+        if not chunks:
+            raise ValueError("decision text must not be empty")
+
+        existing = self.documents_repository.find_by_chunk_key(
+            build_chunk_key(decision_hash, 0)
+        )
         if existing is not None:
             raise DecisionAlreadyStored(existing)
 
-        embedding = self.embedding_client.embed(content)
-        payload = build_document_payload(
-            command=command,
-            content=content,
-            content_hash=content_hash,
-            embedding=embedding,
-            received_at=received_at or datetime.now(UTC),
-        )
-        inserted = self.documents_repository.insert(payload)
-        return DecisionRecord(payload=payload, inserted=inserted)
+        embeddings = self.embedding_client.embed_many([chunk.text for chunk in chunks])
+        if len(embeddings) != len(chunks):
+            raise ValueError("embedding count must match chunk count")
+
+        timestamp = received_at or datetime.now(UTC)
+        payloads = [
+            build_document_payload(
+                command=command,
+                chunk=chunk,
+                decision_hash=decision_hash,
+                source_text_length=len(content),
+                embedding=embedding,
+                received_at=timestamp,
+            )
+            for chunk, embedding in zip(chunks, embeddings, strict=True)
+        ]
+        inserted = self.documents_repository.insert_many(payloads)
+        return DecisionRecord(payloads=payloads, inserted=inserted)
 
 
 def normalize_decision_text(text: str) -> str:
@@ -72,17 +97,29 @@ def hash_content(content: str) -> str:
     return sha256(content.encode("utf-8")).hexdigest()
 
 
+def build_chunk_key(decision_hash: str, chunk_index: int) -> str:
+    return f"decide:{decision_hash}:{chunk_index:04d}"
+
+
 def build_document_payload(
     command: dict[str, Any],
-    content: str,
-    content_hash: str,
+    chunk: DecisionChunk,
+    decision_hash: str,
+    source_text_length: int,
     embedding: list[float],
     received_at: datetime,
 ) -> dict[str, Any]:
     timestamp = received_at.astimezone(UTC).isoformat()
     trigger_id = command.get("trigger_id")
+    chunk_key = build_chunk_key(decision_hash, chunk.index)
+    content_hash = hash_content(f"{decision_hash}:{chunk.index}:{chunk.text}")
     metadata = {
         "received_at": timestamp,
+        "decision_hash": decision_hash,
+        "chunk_index": chunk.index,
+        "chunk_count": chunk.count,
+        "source_text_length": source_text_length,
+        "chunk_text_length": len(chunk.text),
         "team_id": command.get("team_id"),
         "team_domain": command.get("team_domain"),
         "enterprise_id": command.get("enterprise_id"),
@@ -93,7 +130,6 @@ def build_document_payload(
         "user_name": command.get("user_name"),
         "command": command.get("command"),
         "trigger_id": trigger_id,
-        "text_length": len(content),
         "has_response_url": bool(command.get("response_url")),
     }
     metadata = {key: value for key, value in metadata.items() if value is not None}
@@ -102,8 +138,8 @@ def build_document_payload(
         "workspace_id": command.get("team_id"),
         "source": "slack_decide",
         "source_id": trigger_id,
-        "chunk_key": f"decide:{content_hash}",
-        "content": content,
+        "chunk_key": chunk_key,
+        "content": chunk.text,
         "content_hash": content_hash,
         "author_id": command.get("user_id"),
         "channel_id": command.get("channel_id"),

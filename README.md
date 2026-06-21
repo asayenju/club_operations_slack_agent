@@ -27,9 +27,10 @@ The Slack bot will connect using Socket Mode when `SLACK_BOT_TOKEN` and
 
 The active Slack bot is currently a simple Bolt test app that responds to
 messages containing `hello`. It also supports `/decide` for recording club
-decisions into the existing Supabase `documents` table. Slack Real-time Search
-is implemented separately under `tools/` as a function/tool for a future LLM
-integration.
+decisions into the existing Supabase `documents` table. Decisions are stored as
+sentence-aware chunks and embedded with Voyage before insertion. Slack Real-time
+Search is implemented separately under `tools/` as a function/tool for a future
+LLM integration.
 
 Required `.env` values for `/decide`:
 
@@ -79,6 +80,12 @@ Test `/decide` in Slack:
 On success, the bot posts a public confirmation that echoes the decision. Empty
 input, duplicate content, embedding failures, and database failures are shown
 only to the user who ran the command.
+
+Internally, `/decide` chunks each decision before embedding. Each chunk is stored
+as its own `documents` row with metadata that links it back to the full decision.
+The current implementation uses local deterministic sentence packing rather
+than LangChain, while keeping the chunking boundary isolated for a future
+semantic chunker.
 
 The Slack app manifest includes `/decide`, but the Slack app must be updated or
 reinstalled for the slash command to appear in the workspace.
