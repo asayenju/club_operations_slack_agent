@@ -1,26 +1,28 @@
-import json
 from googleapiclient.discovery import build
-from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials
+
+from common.config import get_ingestion_settings
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 SHEETS_MIME_TYPE = "application/vnd.google-apps.spreadsheet"
 
 
-def _build_drive_service(service_account_json: str):
-    """
-    Authenticates with Google using a service account and returns a Drive API client.
-    """
-    creds_dict = json.loads(service_account_json)
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    return build("drive", "v3", credentials=creds)
+def _build_drive_service():
+    """Authenticates with Google using the stored OAuth token and returns a Drive API client."""
+    token_path = get_ingestion_settings().google_token_path
+    if not token_path.exists():
+        raise FileNotFoundError(
+            f"Google OAuth token not found at {token_path}. "
+            "Run: python -m tools.google_auth_bootstrap"
+        )
+    credentials = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+    return build("drive", "v3", credentials=credentials)
 
 
-def list_all_sheets(service_account_json: str) -> list[dict]:
-    """
-    Returns all Google Sheets accessible to the service account as a list of {sheet_id, name, folder_id}.
-    """
-    service = _build_drive_service(service_account_json)
+def list_all_sheets() -> list[dict]:
+    """Returns all Google Sheets accessible to the account as a list of {sheet_id, name, folder_id}."""
+    service = _build_drive_service()
     results = (
         service.files()
         .list(
@@ -38,13 +40,3 @@ def list_all_sheets(service_account_json: str) -> list[dict]:
         }
         for f in files
     ]
-
-
-if __name__ == "__main__":
-    import os
-    from dotenv import load_dotenv
-    from pathlib import Path
-    load_dotenv(Path(__file__).parent.parent / ".env")
-
-    sheets = list_all_sheets(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
-    print(sheets)
