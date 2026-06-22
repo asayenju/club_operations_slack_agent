@@ -19,8 +19,14 @@ class FakeDocumentsRepository:
         self.duplicate_checks = []
         self.inserted_payload_batches = []
 
-    def find_by_chunk_key(self, chunk_key):
-        self.duplicate_checks.append(chunk_key)
+    def find_by_chunk_key(self, chunk_key, workspace_id, source):
+        self.duplicate_checks.append(
+            {
+                "chunk_key": chunk_key,
+                "workspace_id": workspace_id,
+                "source": source,
+            }
+        )
         return self.existing
 
     def insert_many(self, payloads):
@@ -111,7 +117,7 @@ def test_store_decision_inserts_chunk_payloads_with_embeddings():
     service = DecisionService(
         repository,
         embedding_client,
-        chunker=SentenceDecisionChunker(max_sentences=1),
+        chunker=SentenceDecisionChunker(max_sentences=1, min_chunk_chars=1),
     )
 
     record = service.store_decision(
@@ -120,7 +126,13 @@ def test_store_decision_inserts_chunk_payloads_with_embeddings():
     )
 
     decision_hash = hash_content("We approved snacks. We picked Friday.")
-    assert repository.duplicate_checks == [build_chunk_key(decision_hash, 0)]
+    assert repository.duplicate_checks == [
+        {
+            "chunk_key": build_chunk_key(decision_hash, 0),
+            "workspace_id": "T123",
+            "source": "slack_decide",
+        }
+    ]
     assert embedding_client.inputs == [["We approved snacks.", "We picked Friday."]]
     assert repository.inserted_payload_batches == [record.payloads]
     assert [payload["content"] for payload in record.payloads] == [
@@ -141,7 +153,13 @@ def test_store_decision_skips_duplicate_decision_by_first_chunk_key():
 
     assert repository.inserted_payload_batches == []
     assert repository.duplicate_checks == [
-        build_chunk_key(hash_content("We approved $300 for tabling."), 0)
+        {
+            "chunk_key": build_chunk_key(
+                hash_content("We approved $300 for tabling."), 0
+            ),
+            "workspace_id": "T123",
+            "source": "slack_decide",
+        }
     ]
 
 
@@ -160,7 +178,7 @@ def test_store_decision_fails_before_insert_when_embedding_count_mismatches():
     service = DecisionService(
         repository,
         FakeEmbeddingClient([[1.0]]),
-        chunker=SentenceDecisionChunker(max_sentences=1),
+        chunker=SentenceDecisionChunker(max_sentences=1, min_chunk_chars=1),
     )
 
     with pytest.raises(ValueError, match="embedding count"):

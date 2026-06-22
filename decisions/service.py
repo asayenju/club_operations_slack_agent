@@ -15,7 +15,12 @@ class EmbeddingClient(Protocol):
 
 
 class DocumentsRepository(Protocol):
-    def find_by_chunk_key(self, chunk_key: str) -> dict[str, Any] | None:
+    def find_by_chunk_key(
+        self,
+        chunk_key: str,
+        workspace_id: str | None,
+        source: str,
+    ) -> dict[str, Any] | None:
         ...
 
     def insert_many(self, payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -64,7 +69,9 @@ class DecisionService:
             raise ValueError("decision text must not be empty")
 
         existing = self.documents_repository.find_by_chunk_key(
-            build_chunk_key(decision_hash, 0)
+            build_chunk_key(decision_hash, 0),
+            workspace_id=command.get("team_id"),
+            source="slack_decide",
         )
         if existing is not None:
             raise DecisionAlreadyStored(existing)

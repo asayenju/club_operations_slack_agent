@@ -15,11 +15,18 @@ class SupabaseDocumentsRepository:
     ) -> "SupabaseDocumentsRepository":
         return cls(create_client(supabase_url, supabase_service_role_key))
 
-    def find_by_chunk_key(self, chunk_key: str) -> dict[str, Any] | None:
+    def find_by_chunk_key(
+        self,
+        chunk_key: str,
+        workspace_id: str | None,
+        source: str,
+    ) -> dict[str, Any] | None:
         response = (
             self.client.table("documents")
-            .select("id,content_hash,chunk_key")
+            .select("id,content_hash,chunk_key,workspace_id,source")
             .eq("chunk_key", chunk_key)
+            .eq("workspace_id", workspace_id)
+            .eq("source", source)
             .limit(1)
             .execute()
         )
