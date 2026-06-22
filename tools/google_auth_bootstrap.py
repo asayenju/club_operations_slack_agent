@@ -11,8 +11,10 @@ SCOPES = [
 
 
 def main() -> None:
+    from common.config import get_ingestion_settings
+
     credentials_path = Path("client_secret.json")
-    token_path = Path("secrets/club_token.json")
+    token_path = get_ingestion_settings().google_token_path
 
     if not credentials_path.exists():
         raise FileNotFoundError(
@@ -26,6 +28,10 @@ def main() -> None:
 
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token_path.write_text(credentials.to_json(), encoding="utf-8")
+    try:
+        token_path.chmod(0o600)
+    except OSError:
+        pass
     print(f"wrote {token_path}")
 
 
