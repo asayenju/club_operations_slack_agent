@@ -36,7 +36,7 @@ class IngestionResult(TypedDict):
 
 
 def content_hash(text: str) -> str:
-    normalized = re.sub(r"\s+", " ", text).strip().lower()
+    normalized = re.sub(r"\s+", " ", text).strip()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
