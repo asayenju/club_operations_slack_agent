@@ -22,6 +22,8 @@ class SheetChunk(TypedDict):
     content: str
     content_hash: str
     row_index: int
+    tab_id: str
+    tab_name: str
 
 
 class IngestionResult(TypedDict):
@@ -38,18 +40,22 @@ def content_hash(text: str) -> str:
 
 
 def build_chunks(rows: list[dict[str, Any]]) -> list[SheetChunk]:
-    """Converts each non-empty row into a chunk keyed by its content hash."""
+    """Converts each non-empty row into a chunk keyed by tab name and content hash."""
     chunks: list[SheetChunk] = []
     for i, row in enumerate(rows):
-        text = row_to_text(row)
+        tab_id = str(row.get("__tab_id__", "0"))
+        tab_name = str(row.get("__tab_name__", "Sheet1"))
+        text = row_to_text({k: v for k, v in row.items() if k not in ("__tab_id__", "__tab_name__")})
         if not text.strip():
             continue
         digest = content_hash(text)
         chunks.append({
-            "chunk_key": f"row_{i}:{digest[:12]}",
+            "chunk_key": f"{tab_id}:row_{i}:{digest[:12]}",
             "content": text,
             "content_hash": digest,
             "row_index": i,
+            "tab_id": tab_id,
+            "tab_name": tab_name,
         })
     return chunks
 

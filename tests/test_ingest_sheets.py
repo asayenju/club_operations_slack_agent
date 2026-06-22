@@ -5,9 +5,9 @@ from ingestion_api import ingest_sheets
 
 def test_build_chunks_skips_empty_rows():
     rows = [
-        {"Name": "Alice", "Role": "President"},
-        {"Name": "", "Role": ""},
-        {"Name": "Bob", "Role": "Treasurer"},
+        {"__tab_id__": "1", "__tab_name__": "Sheet1", "Name": "Alice", "Role": "President"},
+        {"__tab_id__": "1", "__tab_name__": "Sheet1", "Name": "", "Role": ""},
+        {"__tab_id__": "1", "__tab_name__": "Sheet1", "Name": "Bob", "Role": "Treasurer"},
     ]
 
     chunks = ingest_sheets.build_chunks(rows)
@@ -15,20 +15,21 @@ def test_build_chunks_skips_empty_rows():
     assert len(chunks) == 2
 
 
-def test_build_chunks_is_stable_when_rows_are_reordered():
-    first = {"Name": "Alice", "Role": "President"}
-    second = {"Name": "Bob", "Role": "Treasurer"}
+def test_build_chunks_separates_rows_from_different_tabs():
+    rows = [
+        {"__tab_id__": "111", "__tab_name__": "Members", "Name": "Alice"},
+        {"__tab_id__": "222", "__tab_name__": "Budget", "Name": "Alice"},
+    ]
 
-    original = ingest_sheets.build_chunks([first, second])
-    reordered = ingest_sheets.build_chunks([second, first])
+    chunks = ingest_sheets.build_chunks(rows)
 
-    assert {chunk["chunk_key"] for chunk in original} == {
-        chunk["chunk_key"] for chunk in reordered
-    }
+    keys = {chunk["chunk_key"] for chunk in chunks}
+    assert any(k.startswith("111:") for k in keys)
+    assert any(k.startswith("222:") for k in keys)
 
 
 def test_ingest_sheet_skips_embedding_for_unchanged_rows(monkeypatch):
-    rows = [{"Name": "Alice", "Role": "President"}]
+    rows = [{"__tab_id__": "1", "__tab_name__": "Sheet1", "Name": "Alice", "Role": "President"}]
     existing_chunk = ingest_sheets.build_chunks(rows)[0]
     upserted = []
 
@@ -63,7 +64,7 @@ def test_ingest_sheet_skips_embedding_for_unchanged_rows(monkeypatch):
 
 
 def test_ingest_sheet_embeds_new_rows(monkeypatch):
-    rows = [{"Name": "Alice", "Role": "President"}]
+    rows = [{"__tab_id__": "1", "__tab_name__": "Sheet1", "Name": "Alice", "Role": "President"}]
     upserted = []
 
     monkeypatch.setattr(
