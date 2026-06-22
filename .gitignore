@@ -10,3 +10,4 @@ __pycache__/
 htmlcov/
 club-operation-slack-agent-ddf0d76c4eb0.json
 client_secret.json
+secrets/
