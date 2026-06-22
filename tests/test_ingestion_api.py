@@ -58,3 +58,11 @@ def test_ingest_doc_endpoint_rejects_empty_doc_id():
     response = client.post("/ingest/doc", json={"doc_id": ""})
 
     assert response.status_code == 422
+
+
+def test_ingest_doc_endpoint_rejects_whitespace_only_doc_id():
+    client = TestClient(app)
+
+    response = client.post("/ingest/doc", json={"doc_id": "   "})
+
+    assert response.status_code == 422

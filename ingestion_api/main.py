@@ -1,7 +1,7 @@
 from typing import Any
 
 from fastapi import Body, FastAPI, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from common.config import get_ingestion_settings
 from ingestion_api.ingest_docs import IngestionResult, ingest_doc
@@ -16,6 +16,8 @@ app = FastAPI(
 
 
 class DocIngestRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     doc_id: str = Field(min_length=1)
 
 
