@@ -104,7 +104,57 @@ The tool searches public Slack messages only. It requires a short-lived
 `action_token` from a Slack interaction and must not log or expose that token.
 See `tools/README.md` for the tool contract and edge cases.
 
-## Ingestion setup
+## Google Docs ingestion
+
+The ingestion service uses the backend-only Supabase secret key. Configure:
+
+```text
+SUPABASE_URL=...
+SUPABASE_SERVICE_KEY=...
+VOYAGE_API_KEY=...
+WORKSPACE_ID=...
+GOOGLE_TOKEN_PATH=secrets/club_token.json
+```
+
+Never expose `SUPABASE_SERVICE_KEY`, `VOYAGE_API_KEY`, `client_secret.json`, or
+the generated Google token to a browser or commit them to Git.
+
+Create a Google OAuth Desktop client with the Docs, Drive, and Sheets APIs
+enabled. Download it as `client_secret.json`, sign into the dedicated club
+Google account, and run:
+
+```bash
+python -m tools.google_auth_bootstrap
+```
+
+This writes the reusable OAuth token to `secrets/club_token.json`.
+
+The `documents` table must include `workspace_id`, `source`, `source_id`,
+`chunk_key`, `content`, `content_hash`, `metadata`, `embedding`, and
+`updated_at`, with a unique constraint on:
+
+```text
+(workspace_id, source, source_id, chunk_key)
+```
+
+Ingest one shared Google Doc using its ID:
+
+```bash
+python -m ingestion_api.ingest_docs <google_doc_id>
+```
+
+Or call the API:
+
+```bash
+curl -X POST http://localhost:8000/ingest/doc \
+  -H "Content-Type: application/json" \
+  -d '{"doc_id":"google-doc-id"}'
+```
+
+Sections are split by Google Docs heading hierarchy. Oversized sections are
+split rather than truncated, and unchanged chunks are not re-embedded.
+
+## Placeholder ingestion webhooks
 
 The ingestion API currently provides placeholder endpoints for later document
 and spreadsheet sync logic:
