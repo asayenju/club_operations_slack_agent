@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def load_bot_module(monkeypatch):
@@ -106,5 +107,57 @@ def test_handle_decide_command_reports_failures_ephemerally(monkeypatch):
         {
             "response_type": "ephemeral",
             "text": "I couldn't store that decision: database down",
+        },
+    ]
+
+
+def test_handle_connect_folder_command_reports_summary(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    service = SimpleNamespace(
+        connect_folder=lambda folder, connected_by: SimpleNamespace(
+            folder_name="Club Files",
+            discovered=5,
+            ingested=2,
+        )
+    )
+    monkeypatch.setattr(
+        bot.DriveSyncService,
+        "from_settings",
+        lambda: service,
+    )
+
+    bot.handle_connect_folder_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"text": "https://drive.google.com/drive/folders/root", "user_id": "U1"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses[0] == {"acked": True}
+    assert responses[1]["response_type"] == "ephemeral"
+    assert "Club Files" in responses[1]["text"]
+
+
+def test_handle_disconnect_folder_command_purges_sources(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    service = SimpleNamespace(disconnect_folder=lambda folder: 2)
+    monkeypatch.setattr(
+        bot.DriveSyncService,
+        "from_settings",
+        lambda: service,
+    )
+
+    bot.handle_disconnect_folder_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"text": "root"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "Folder disconnected. Removed 2 unreferenced sources.",
         },
     ]

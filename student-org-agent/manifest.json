@@ -18,6 +18,18 @@
         "description": "Record a club decision",
         "usage_hint": "We approved the spring budget.",
         "should_escape": false
+      },
+      {
+        "command": "/connect-folder",
+        "description": "Connect a Google Drive folder for ingestion",
+        "usage_hint": "https://drive.google.com/drive/folders/...",
+        "should_escape": false
+      },
+      {
+        "command": "/disconnect-folder",
+        "description": "Disconnect a Google Drive folder",
+        "usage_hint": "https://drive.google.com/drive/folders/...",
+        "should_escape": false
       }
     ]
   },

@@ -1,11 +1,13 @@
+from dataclasses import asdict
 from typing import Any
 
 from fastapi import BackgroundTasks, Body, FastAPI, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from common.config import get_ingestion_settings
+from ingestion_api.drive_sync import DriveSyncService
 from ingestion_api.ingest_docs import IngestionResult, ingest_doc
-from ingestion_api.ingest_sheets import ingest_all_sheets, ingest_sheet
+from ingestion_api.ingest_sheets import ingest_sheet
 
 settings = get_ingestion_settings()
 
@@ -57,10 +59,40 @@ def ingest_sheet_endpoint(request: SheetIngestRequest) -> Any:
     return ingest_sheet(request.sheet_id)
 
 
-@app.post("/ingest/sheets", status_code=status.HTTP_202_ACCEPTED)
-async def ingest_all_sheets_endpoint(background_tasks: BackgroundTasks) -> dict[str, str]:
-    background_tasks.add_task(ingest_all_sheets)
-    return {"status": "accepted", "source": "all_sheets"}
+class FolderRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    folder: str = Field(min_length=1)
+    user_id: str | None = None
+
+
+@app.post("/drive/connect")
+def connect_drive_folder(request: FolderRequest) -> dict[str, Any]:
+    result = DriveSyncService.from_settings().connect_folder(
+        request.folder,
+        connected_by=request.user_id,
+    )
+    return asdict(result)
+
+
+@app.post("/drive/disconnect")
+def disconnect_drive_folder(request: FolderRequest) -> dict[str, Any]:
+    purged = DriveSyncService.from_settings().disconnect_folder(request.folder)
+    return {"status": "disconnected", "purged_sources": purged}
+
+
+@app.post("/drive/sync", status_code=status.HTTP_202_ACCEPTED)
+def sync_drive_folders(background_tasks: BackgroundTasks) -> dict[str, str]:
+    background_tasks.add_task(DriveSyncService.from_settings().poll_changes)
+    return {"status": "accepted", "source": "drive"}
+
+
+@app.get("/drive/folders")
+def list_drive_folders() -> list[dict[str, Any]]:
+    return [
+        asdict(folder)
+        for folder in DriveSyncService.from_settings().list_connected_folders()
+    ]
 
 
 @app.post("/webhooks/spreadsheets", status_code=status.HTTP_202_ACCEPTED)

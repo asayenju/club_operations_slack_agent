@@ -43,6 +43,7 @@ class IngestionSettings(BaseAppSettings):
     voyage_api_key: str | None = None
     workspace_id: str | None = None
     google_token_path: Path = Path("secrets/club_token.json")
+    drive_poll_interval_seconds: int = 300
 
     def require(self, value: T | None, environment_name: str) -> T:
         if value is None or (isinstance(value, str) and not value.strip()):

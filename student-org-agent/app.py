@@ -1,3 +1,4 @@
+import logging
 import os
 
 from pydantic import ValidationError
@@ -8,6 +9,10 @@ from common.config import get_slack_settings
 from decisions.embedding import EmbeddingError, VoyageEmbeddingClient
 from decisions.repository import SupabaseDocumentsRepository
 from decisions.service import DecisionAlreadyStored, DecisionService
+from ingestion_api.drive_sync import DriveSyncService
+
+
+logger = logging.getLogger(__name__)
 
 
 app = App(
@@ -89,6 +94,69 @@ def build_decision_service() -> DecisionService:
     return DecisionService(
         documents_repository=repository,
         embedding_client=embedding_client,
+    )
+
+
+@app.command("/connect-folder")
+def handle_connect_folder_command(ack, command, respond):
+    ack()
+    folder_reference = str(command.get("text", "")).strip()
+    if not folder_reference:
+        respond(
+            response_type="ephemeral",
+            text="Usage: `/connect-folder <google-drive-folder-url>`",
+        )
+        return
+
+    try:
+        result = DriveSyncService.from_settings().connect_folder(
+            folder_reference,
+            connected_by=command.get("user_id"),
+        )
+    except Exception as exc:
+        logger.exception("Failed to connect Drive folder")
+        respond(
+            response_type="ephemeral",
+            text=f"I couldn't connect that folder: {exc}",
+        )
+        return
+
+    respond(
+        response_type="ephemeral",
+        text=(
+            f"Connected *{result.folder_name}*. "
+            f"Found {result.discovered} supported items and ingested "
+            f"{result.ingested} changed files."
+        ),
+    )
+
+
+@app.command("/disconnect-folder")
+def handle_disconnect_folder_command(ack, command, respond):
+    ack()
+    folder_reference = str(command.get("text", "")).strip()
+    if not folder_reference:
+        respond(
+            response_type="ephemeral",
+            text="Usage: `/disconnect-folder <google-drive-folder-url>`",
+        )
+        return
+
+    try:
+        purged = DriveSyncService.from_settings().disconnect_folder(
+            folder_reference
+        )
+    except Exception as exc:
+        logger.exception("Failed to disconnect Drive folder")
+        respond(
+            response_type="ephemeral",
+            text=f"I couldn't disconnect that folder: {exc}",
+        )
+        return
+
+    respond(
+        response_type="ephemeral",
+        text=f"Folder disconnected. Removed {purged} unreferenced sources.",
     )
 
 
