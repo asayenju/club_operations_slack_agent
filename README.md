@@ -284,10 +284,13 @@ curl -X POST http://localhost:8000/ingest/sheet \
 
 ```
 
-Each row becomes a chunk keyed by stable tab ID, content hash, and duplicate
-occurrence. `row_index` is retained only as ordering metadata, so inserting or
-reordering unrelated rows does not redefine their identities. Multi-tab Sheets
-are supported.
+Each row becomes a chunk keyed by `{tab_id}:{content_hash}`. Duplicate rows
+within the same tab are de-duplicated automatically. Multi-tab sheets are fully
+supported; tabs are identified by their stable numeric ID so renaming a tab
+does not trigger re-embedding.
+
+To enable automatic background polling, set `DRIVE_POLL_INTERVAL_SECONDS` to
+the desired interval in seconds (e.g. `300` for every 5 minutes).
 
 The existing webhook can still trigger a direct rewrite:
 

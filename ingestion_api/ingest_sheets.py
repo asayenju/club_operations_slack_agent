@@ -16,7 +16,6 @@ class SheetChunk(TypedDict):
     chunk_key: str
     content: str
     content_hash: str
-    row_index: int
     tab_id: str
     tab_name: str
 
@@ -35,11 +34,10 @@ def content_hash(text: str) -> str:
 
 
 def build_chunks(rows: list[dict[str, Any]]) -> list[SheetChunk]:
-    """Use content identity; row_index remains ordering metadata only."""
+    """Converts each non-empty row into a chunk keyed by tab ID and content hash."""
     chunks: list[SheetChunk] = []
-    duplicate_counts: dict[tuple[str, str], int] = {}
-
-    for row_index, row in enumerate(rows):
+    seen: set[str] = set()
+    for row in rows:
         tab_id = str(row.get("__tab_id__", "0"))
         tab_name = str(row.get("__tab_name__", "Sheet1"))
         content = row_to_text(
@@ -51,22 +49,18 @@ def build_chunks(rows: list[dict[str, Any]]) -> list[SheetChunk]:
         )
         if not content.strip():
             continue
-
         digest = content_hash(content)
-        duplicate_key = (tab_id, digest)
-        duplicate_number = duplicate_counts.get(duplicate_key, 0)
-        duplicate_counts[duplicate_key] = duplicate_number + 1
-        chunks.append(
-            {
-                "chunk_key": f"{tab_id}:{digest[:12]}:{duplicate_number}",
-                "content": content,
-                "content_hash": digest,
-                "row_index": row_index,
-                "tab_id": tab_id,
-                "tab_name": tab_name,
-            }
-        )
-
+        chunk_key = f"{tab_id}:{digest}"
+        if chunk_key in seen:
+            continue
+        seen.add(chunk_key)
+        chunks.append({
+            "chunk_key": chunk_key,
+            "content": content,
+            "content_hash": digest,
+            "tab_id": tab_id,
+            "tab_name": tab_name,
+        })
     return chunks
 
 
@@ -96,7 +90,6 @@ def ingest_sheet(sheet_id: str) -> IngestionResult:
                 "content": chunk["content"],
                 "content_hash": chunk["content_hash"],
                 "metadata": {
-                    "row_index": chunk["row_index"],
                     "tab_id": chunk["tab_id"],
                     "tab_name": chunk["tab_name"],
                     "last_ingested": now,
