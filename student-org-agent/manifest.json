@@ -30,6 +30,18 @@
         "description": "Disconnect a Google Drive folder",
         "usage_hint": "https://drive.google.com/drive/folders/...",
         "should_escape": false
+      },
+      {
+        "command": "/register",
+        "description": "Link your Slack account to a Google account",
+        "usage_hint": "you@example.com",
+        "should_escape": false
+      },
+      {
+        "command": "/unregister",
+        "description": "Remove your linked Google account",
+        "usage_hint": "",
+        "should_escape": false
       }
     ]
   },

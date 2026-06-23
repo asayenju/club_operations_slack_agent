@@ -19,6 +19,7 @@ services:
       - ./common:/app/common
       - ./decisions:/app/decisions
       - ./ingestion_api:/app/ingestion_api
+      - ./registrations:/app/registrations
       - ./student-org-agent:/app/student-org-agent
       - ./secrets:/app/secrets:ro
     command: sh -c "python /app/student-org-agent/app.py"

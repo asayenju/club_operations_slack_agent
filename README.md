@@ -90,6 +90,44 @@ semantic chunker.
 The Slack app manifest includes `/decide`, but the Slack app must be updated or
 reinstalled for the slash command to appear in the workspace.
 
+## Slack-to-Google account registration
+
+Run this migration before enabling account registration:
+
+```text
+supabase/migrations/20260623_user_google_accounts.sql
+```
+
+Members can privately link any valid Google-account email to their own Slack
+identity:
+
+```text
+/register member@example.com
+```
+
+Emails are trimmed and lowercased. Re-running `/register` updates that Slack
+user's mapping. A Google email can belong to only one Slack user within a
+workspace. Responses are always ephemeral.
+
+Members can remove their mapping:
+
+```text
+/unregister
+```
+
+Unregistering is idempotent. Calendar and commitment features should resolve an
+account through:
+
+```python
+from registrations import resolve_google_email
+
+email = resolve_google_email(workspace_id, slack_user_id)
+```
+
+The stable identity is `(workspace_id, slack_user_id)`. Display names are stored
+only as optional metadata. Explicit `/register` records use `source=register`
+and should not be overwritten by future roster imports.
+
 ## Connected Drive folders
 
 Docs and Sheets are discovered from explicitly connected Drive folders instead

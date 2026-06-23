@@ -1,18 +1,22 @@
 import logging
 import os
+import re
 
 from pydantic import ValidationError
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from common.config import get_slack_settings
+from common.config import get_ingestion_settings, get_slack_settings
 from decisions.embedding import EmbeddingError, VoyageEmbeddingClient
 from decisions.repository import SupabaseDocumentsRepository
 from decisions.service import DecisionAlreadyStored, DecisionService
 from ingestion_api.drive_sync import DriveSyncService
+from registrations.repository import SupabaseRegistrationRepository
+from registrations.service import EmailAlreadyRegistered, RegistrationService
 
 
 logger = logging.getLogger(__name__)
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 app = App(
@@ -95,6 +99,91 @@ def build_decision_service() -> DecisionService:
         documents_repository=repository,
         embedding_client=embedding_client,
     )
+
+
+@app.command("/register")
+def handle_register_command(ack, command, respond):
+    ack()
+    if command.get("team_id") != configured_workspace_id():
+        respond(
+            response_type="ephemeral",
+            text="This command is not available in this workspace.",
+        )
+        return
+    email = str(command.get("text", "")).strip().lower()
+    if not EMAIL_PATTERN.fullmatch(email):
+        respond(
+            response_type="ephemeral",
+            text="Usage: `/register you@example.com`",
+        )
+        return
+    service = build_registration_service()
+    try:
+        registered_email = service.register(
+            workspace_id=command["team_id"],
+            slack_user_id=command["user_id"],
+            email=email,
+            display_name=command.get("user_name"),
+        )
+    except EmailAlreadyRegistered as exc:
+        respond(response_type="ephemeral", text=str(exc))
+        return
+    except Exception:
+        logger.exception("Failed to register Google account")
+        respond(
+            response_type="ephemeral",
+            text="I couldn't link that Google account right now.",
+        )
+        return
+    respond(
+        response_type="ephemeral",
+        text=f"Google account linked: {registered_email}",
+    )
+
+
+def build_registration_service() -> RegistrationService:
+    settings = get_slack_settings()
+    repository = SupabaseRegistrationRepository.from_settings(
+        settings.supabase_url,
+        settings.supabase_service_role_key,
+    )
+    return RegistrationService(repository)
+
+
+@app.command("/unregister")
+def handle_unregister_command(ack, command, respond):
+    ack()
+    if command.get("team_id") != configured_workspace_id():
+        respond(
+            response_type="ephemeral",
+            text="This command is not available in this workspace.",
+        )
+        return
+
+    try:
+        removed = build_registration_service().unregister(
+            command["team_id"],
+            command["user_id"],
+        )
+    except Exception:
+        logger.exception("Failed to unregister Google account")
+        respond(
+            response_type="ephemeral",
+            text="I couldn't unlink that Google account right now.",
+        )
+        return
+    respond(
+        response_type="ephemeral",
+        text=(
+            "Google account unlinked."
+            if removed
+            else "No Google account was registered."
+        ),
+    )
+
+
+def configured_workspace_id() -> str:
+    return get_ingestion_settings().required_workspace_id
 
 
 @app.command("/connect-folder")
