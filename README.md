@@ -154,22 +154,54 @@ curl -X POST http://localhost:8000/ingest/doc \
 Sections are split by Google Docs heading hierarchy. Oversized sections are
 split rather than truncated, and unchanged chunks are not re-embedded.
 
-## Placeholder ingestion webhooks
+## Google Sheets ingestion
 
-The ingestion API currently provides placeholder endpoints for later document
-and spreadsheet sync logic:
+Reads all tabs from every Google Sheet accessible to the authorized account,
+converts each row to a text chunk, and stores embeddings incrementally in
+Supabase. Only changed rows are re-embedded; deleted rows are removed.
+
+Ingest a single sheet by its ID (found in the sheet URL):
+
+```bash
+python -m ingestion_api.ingest_sheets <google_sheet_id>
+```
+
+Or call the API:
+
+```bash
+# Ingest one sheet
+curl -X POST http://localhost:8000/ingest/sheet \
+  -H "Content-Type: application/json" \
+  -d '{"sheet_id":"google-sheet-id"}'
+
+# Discover and ingest all accessible sheets (runs in background)
+curl -X POST http://localhost:8000/ingest/sheets
+```
+
+Each row becomes a chunk keyed by `{tab_id}:row_{index}:{content_hash}`.
+Multi-tab sheets are fully supported; tabs are identified by their stable
+numeric ID so renaming a tab does not trigger re-embedding.
+
+Trigger incremental re-ingestion from a Google Apps Script `onEdit` webhook:
+
+```bash
+curl -X POST http://localhost:8000/webhooks/spreadsheets \
+  -H "Content-Type: application/json" \
+  -d '{"sheet_id":"google-sheet-id"}'
+```
+
+## Ingestion setup
+
+The ingestion API currently provides a placeholder endpoint for later document
+sync logic:
 
 ```bash
 curl -X POST http://localhost:8000/webhooks/documents \
   -H "Content-Type: application/json" \
   -d '{"document_id":"example"}'
-
-curl -X POST http://localhost:8000/webhooks/spreadsheets \
-  -H "Content-Type: application/json" \
-  -d '{"spreadsheet_id":"example"}'
 ```
 
-These endpoints acknowledge payloads but do not write to Supabase yet.
+This endpoint acknowledges the payload but does not write to Supabase yet.
 
 ## Development
 
