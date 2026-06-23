@@ -90,6 +90,62 @@ semantic chunker.
 The Slack app manifest includes `/decide`, but the Slack app must be updated or
 reinstalled for the slash command to appear in the workspace.
 
+## Connected Drive folders
+
+Docs and Sheets are discovered from explicitly connected Drive folders instead
+of scanning every file visible to the club Google account.
+
+Before using folder sync, run this migration in the Supabase SQL editor:
+
+```text
+supabase/migrations/20260623_drive_folder_sync.sql
+```
+
+Then update or reinstall the Slack app manifest and connect a folder:
+
+```text
+/connect-folder https://drive.google.com/drive/folders/<folder_id>
+```
+
+The initial scan recursively discovers Google Docs and Sheets in all
+subfolders. Files are dispatched to the existing heading-based Docs ingestor or
+the full-rewrite Sheets ingestor. Folder and file membership is stored in:
+
+- `connected_folders`
+- `connected_files`
+- `drive_sync_state`
+
+Disconnect a folder and remove source documents no longer referenced by another
+connected root:
+
+```text
+/disconnect-folder https://drive.google.com/drive/folders/<folder_id>
+```
+
+The `drive-sync-worker` Docker Compose service polls the Drive Changes API. A
+change identifies affected connected roots; those roots are rescanned, but only
+files with a changed Drive `modifiedTime` are re-ingested.
+
+Configure the interval in seconds:
+
+```text
+DRIVE_POLL_INTERVAL_SECONDS=300
+```
+
+Internal API equivalents are also available:
+
+```bash
+curl -X POST http://localhost:8000/drive/connect \
+  -H "Content-Type: application/json" \
+  -d '{"folder":"https://drive.google.com/drive/folders/<folder_id>","user_id":"U123"}'
+
+curl -X POST http://localhost:8000/drive/sync
+
+curl -X POST http://localhost:8000/drive/disconnect \
+  -H "Content-Type: application/json" \
+  -d '{"folder":"<folder_id>"}'
+```
+
 ## Slack RTS tool
 
 Slack Real-time Search lives in `tools/slack_search.py`. It exposes a
@@ -156,9 +212,9 @@ split rather than truncated, and unchanged chunks are not re-embedded.
 
 ## Google Sheets ingestion
 
-Reads all tabs from every Google Sheet accessible to the authorized account,
-converts each row to a text chunk, and stores embeddings incrementally in
-Supabase. Only changed rows are re-embedded; deleted rows are removed.
+Reads all tabs from Sheets found below connected Drive folders. When Drive marks
+a Sheet as changed, the file is fully rewritten: all row embeddings are
+prepared first, then the prior rows for that Sheet are replaced.
 
 Ingest a single sheet by its ID (found in the sheet URL):
 
@@ -174,15 +230,14 @@ curl -X POST http://localhost:8000/ingest/sheet \
   -H "Content-Type: application/json" \
   -d '{"sheet_id":"google-sheet-id"}'
 
-# Discover and ingest all accessible sheets (runs in background)
-curl -X POST http://localhost:8000/ingest/sheets
 ```
 
-Each row becomes a chunk keyed by `{tab_id}:row_{index}:{content_hash}`.
-Multi-tab sheets are fully supported; tabs are identified by their stable
-numeric ID so renaming a tab does not trigger re-embedding.
+Each row becomes a chunk keyed by stable tab ID, content hash, and duplicate
+occurrence. `row_index` is retained only as ordering metadata, so inserting or
+reordering unrelated rows does not redefine their identities. Multi-tab Sheets
+are supported.
 
-Trigger incremental re-ingestion from a Google Apps Script `onEdit` webhook:
+The existing webhook can still trigger a direct rewrite:
 
 ```bash
 curl -X POST http://localhost:8000/webhooks/spreadsheets \

@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
+from ingestion_api.drive_sync import FolderSyncResult
 from ingestion_api.main import app
 
 
@@ -67,3 +69,45 @@ def test_ingest_doc_endpoint_rejects_whitespace_only_doc_id():
     response = client.post("/ingest/doc", json={"doc_id": "   "})
 
     assert response.status_code == 422
+
+
+def test_connect_drive_folder_endpoint(monkeypatch):
+    service = SimpleNamespace(
+        connect_folder=lambda folder, connected_by: FolderSyncResult(
+            folder_id="root",
+            folder_name="Club Files",
+            discovered=3,
+            ingested=2,
+            unchanged=1,
+            removed=0,
+        )
+    )
+    monkeypatch.setattr(
+        "ingestion_api.main.DriveSyncService.from_settings",
+        lambda: service,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/drive/connect",
+        json={"folder": "root", "user_id": "U123"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ingested"] == 2
+
+
+def test_sync_drive_endpoint_queues_poll(monkeypatch):
+    calls = []
+    service = SimpleNamespace(poll_changes=lambda: calls.append("polled"))
+    monkeypatch.setattr(
+        "ingestion_api.main.DriveSyncService.from_settings",
+        lambda: service,
+    )
+    client = TestClient(app)
+
+    response = client.post("/drive/sync")
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "accepted", "source": "drive"}
+    assert calls == ["polled"]

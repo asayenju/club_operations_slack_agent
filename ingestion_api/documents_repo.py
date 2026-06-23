@@ -43,6 +43,34 @@ def upsert_chunks(rows: list[dict[str, Any]]) -> None:
     )
 
 
+def replace_source_chunks(
+    workspace_id: str,
+    source: str,
+    source_id: str,
+    rows: list[dict[str, Any]],
+) -> int:
+    deleted = delete_source(workspace_id, source, source_id)
+    upsert_chunks(rows)
+    return deleted
+
+
+def delete_source(workspace_id: str, source: str, source_id: str) -> int:
+    keys = existing_keys(workspace_id, source, source_id)
+    if not keys:
+        return 0
+
+    (
+        get_supabase_client()
+        .table("documents")
+        .delete()
+        .eq("workspace_id", workspace_id)
+        .eq("source", source)
+        .eq("source_id", source_id)
+        .execute()
+    )
+    return len(keys)
+
+
 def delete_missing(
     workspace_id: str,
     source: str,

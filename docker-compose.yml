@@ -8,6 +8,7 @@ services:
     volumes:
       - ./common:/app/common
       - ./ingestion_api:/app/ingestion_api
+      - ./secrets:/app/secrets:ro
     command: sh -c "uvicorn ingestion_api.main:app --host 0.0.0.0 --port 8000 --reload"
 
   slack-bot:
@@ -17,5 +18,18 @@ services:
     volumes:
       - ./common:/app/common
       - ./decisions:/app/decisions
+      - ./ingestion_api:/app/ingestion_api
       - ./student-org-agent:/app/student-org-agent
+      - ./secrets:/app/secrets:ro
     command: sh -c "python /app/student-org-agent/app.py"
+
+  drive-sync-worker:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./common:/app/common
+      - ./ingestion_api:/app/ingestion_api
+      - ./tools:/app/tools
+      - ./secrets:/app/secrets:ro
+    command: sh -c "python -m tools.drive_poll_worker"
