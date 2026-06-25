@@ -42,7 +42,29 @@ def test_handle_decide_command_stores_decision_and_confirms_publicly(monkeypatch
     monkeypatch.setattr(bot, "build_decision_service", lambda: service)
     bot.handle_decide_command(
         ack=lambda: responses.append({"acked": True}),
-        command={"text": "  We approved snacks.  "},
+        command={"text": "  We approved snacks.  ", "user_id": "U123"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "in_channel",
+            "text": "Decision recorded by <@U123>: We approved snacks.",
+        },
+    ]
+    assert service.commands == [{"text": "  We approved snacks.  ", "user_id": "U123"}]
+
+
+def test_handle_decide_command_confirms_without_author_when_missing(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    service = FakeDecisionService()
+    responses = []
+
+    monkeypatch.setattr(bot, "build_decision_service", lambda: service)
+    bot.handle_decide_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"text": "We approved snacks."},
         respond=lambda **kwargs: responses.append(kwargs),
     )
 
@@ -50,7 +72,6 @@ def test_handle_decide_command_stores_decision_and_confirms_publicly(monkeypatch
         {"acked": True},
         {"response_type": "in_channel", "text": "Decision recorded: We approved snacks."},
     ]
-    assert service.commands == [{"text": "  We approved snacks.  "}]
 
 
 def test_handle_decide_command_rejects_empty_text(monkeypatch):

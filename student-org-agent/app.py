@@ -78,9 +78,11 @@ def handle_decide_command(ack, command, respond):
         )
         return
 
+    user_id = command.get("user_id")
+    author = f" by <@{user_id}>" if user_id else ""
     respond(
         response_type="in_channel",
-        text=f"Decision recorded: {decision_text}",
+        text=f"Decision recorded{author}: {decision_text}",
     )
 
 
