@@ -234,7 +234,9 @@ class SupabaseDriveRegistry:
             .execute()
         )
         rows = response.data or []
-        return str(rows[0]["page_token"]) if rows else None
+        if not rows or not rows[0].get("page_token"):
+            return None
+        return str(rows[0]["page_token"])
 
     def set_page_token(self, workspace_id: str, page_token: str) -> None:
         (
