@@ -4,7 +4,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${INGESTION_PORT:-8000}:8000"
+      - "127.0.0.1:${INGESTION_PORT:-8000}:8000"
     volumes:
       - ./common:/app/common
       - ./ingestion_api:/app/ingestion_api

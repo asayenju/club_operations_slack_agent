@@ -48,6 +48,8 @@ def build_hello_response(user_id: str) -> dict:
 @app.command("/decide")
 def handle_decide_command(ack, command, respond):
     ack()
+    if not ensure_configured_workspace(command, respond):
+        return
     decision_text = str(command.get("text", "")).strip()
     if not decision_text:
         respond(
@@ -71,10 +73,11 @@ def handle_decide_command(ack, command, respond):
             text="That decision is already stored.",
         )
         return
-    except (EmbeddingError, RuntimeError, ValueError) as exc:
+    except (EmbeddingError, RuntimeError, ValueError):
+        logger.exception("Failed to store decision")
         respond(
             response_type="ephemeral",
-            text=f"I couldn't store that decision: {exc}",
+            text="I couldn't store that decision right now.",
         )
         return
 
@@ -188,9 +191,50 @@ def configured_workspace_id() -> str:
     return get_ingestion_settings().required_workspace_id
 
 
+def ensure_configured_workspace(command, respond) -> bool:
+    if command.get("team_id") == configured_workspace_id():
+        return True
+    respond(
+        response_type="ephemeral",
+        text="This command is not available in this workspace.",
+    )
+    return False
+
+
+def ensure_drive_sync_admin(command, respond) -> bool:
+    settings = get_ingestion_settings()
+    configured = settings.drive_sync_admin_user_ids
+    if configured:
+        allowed_user_ids = {
+            user_id.strip()
+            for user_id in configured.split(",")
+            if user_id.strip()
+        }
+        if command.get("user_id") in allowed_user_ids:
+            return True
+        respond(
+            response_type="ephemeral",
+            text="You are not allowed to manage connected Drive folders.",
+        )
+        return False
+
+    if settings.app_env == "development":
+        return True
+
+    respond(
+        response_type="ephemeral",
+        text="Drive folder administrators are not configured.",
+    )
+    return False
+
+
 @app.command("/connect-folder")
 def handle_connect_folder_command(ack, command, respond):
     ack()
+    if not ensure_configured_workspace(command, respond):
+        return
+    if not ensure_drive_sync_admin(command, respond):
+        return
     folder_reference = str(command.get("text", "")).strip()
     if not folder_reference:
         respond(
@@ -208,7 +252,7 @@ def handle_connect_folder_command(ack, command, respond):
         logger.exception("Failed to connect Drive folder")
         respond(
             response_type="ephemeral",
-            text=f"I couldn't connect that folder: {exc}",
+            text="I couldn't connect that folder right now.",
         )
         return
 
@@ -225,6 +269,10 @@ def handle_connect_folder_command(ack, command, respond):
 @app.command("/disconnect-folder")
 def handle_disconnect_folder_command(ack, command, respond):
     ack()
+    if not ensure_configured_workspace(command, respond):
+        return
+    if not ensure_drive_sync_admin(command, respond):
+        return
     folder_reference = str(command.get("text", "")).strip()
     if not folder_reference:
         respond(
@@ -241,7 +289,7 @@ def handle_disconnect_folder_command(ack, command, respond):
         logger.exception("Failed to disconnect Drive folder")
         respond(
             response_type="ephemeral",
-            text=f"I couldn't disconnect that folder: {exc}",
+            text="I couldn't disconnect that folder right now.",
         )
         return
 

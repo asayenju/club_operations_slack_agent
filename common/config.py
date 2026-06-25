@@ -44,6 +44,8 @@ class IngestionSettings(BaseAppSettings):
     workspace_id: str | None = None
     google_token_path: Path = Path("secrets/club_token.json")
     drive_poll_interval_seconds: int = 300
+    ingestion_api_key: str | None = None
+    drive_sync_admin_user_ids: str | None = None
 
     def require(self, value: T | None, environment_name: str) -> T:
         if value is None or (isinstance(value, str) and not value.strip()):

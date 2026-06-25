@@ -145,6 +145,13 @@ Then update or reinstall the Slack app manifest and connect a folder:
 /connect-folder https://drive.google.com/drive/folders/<folder_id>
 ```
 
+In non-development environments, set the Slack users allowed to manage connected
+folders:
+
+```text
+DRIVE_SYNC_ADMIN_USER_IDS=U123456789,U987654321
+```
+
 The initial scan recursively discovers Google Docs and Sheets in all
 subfolders. Files are dispatched to the existing heading-based Docs ingestor or
 the full-rewrite Sheets ingestor. Folder and file membership is stored in:
@@ -175,14 +182,21 @@ Internal API equivalents are also available:
 ```bash
 curl -X POST http://localhost:8000/drive/connect \
   -H "Content-Type: application/json" \
+  -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
   -d '{"folder":"https://drive.google.com/drive/folders/<folder_id>","user_id":"U123"}'
 
-curl -X POST http://localhost:8000/drive/sync
+curl -X POST http://localhost:8000/drive/sync \
+  -H "X-Ingestion-Api-Key: $INGESTION_API_KEY"
 
 curl -X POST http://localhost:8000/drive/disconnect \
   -H "Content-Type: application/json" \
+  -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
   -d '{"folder":"<folder_id>"}'
 ```
+
+In Docker Compose, the ingestion API is bound to `127.0.0.1` by default. If
+exposed outside localhost, configure `INGESTION_API_KEY`; production-like
+environments reject protected routes without it.
 
 ## Slack RTS tool
 

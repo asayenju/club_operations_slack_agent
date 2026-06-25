@@ -6,10 +6,20 @@ from types import SimpleNamespace
 def load_bot_module(monkeypatch):
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
     monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
+    monkeypatch.setenv("WORKSPACE_ID", "T123")
     module_path = Path(__file__).resolve().parents[1] / "student-org-agent" / "app.py"
     spec = importlib.util.spec_from_file_location("student_org_agent_app", module_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "configured_workspace_id", lambda: "T123")
+    monkeypatch.setattr(
+        module,
+        "get_ingestion_settings",
+        lambda: SimpleNamespace(
+            app_env="development",
+            drive_sync_admin_user_ids=None,
+        ),
+    )
     return module
 
 
@@ -42,7 +52,7 @@ def test_handle_decide_command_stores_decision_and_confirms_publicly(monkeypatch
     monkeypatch.setattr(bot, "build_decision_service", lambda: service)
     bot.handle_decide_command(
         ack=lambda: responses.append({"acked": True}),
-        command={"text": "  We approved snacks.  ", "user_id": "U123"},
+        command={"team_id": "T123", "text": "  We approved snacks.  ", "user_id": "U123"},
         respond=lambda **kwargs: responses.append(kwargs),
     )
 
@@ -53,7 +63,9 @@ def test_handle_decide_command_stores_decision_and_confirms_publicly(monkeypatch
             "text": "Decision recorded by <@U123>: We approved snacks.",
         },
     ]
-    assert service.commands == [{"text": "  We approved snacks.  ", "user_id": "U123"}]
+    assert service.commands == [
+        {"team_id": "T123", "text": "  We approved snacks.  ", "user_id": "U123"}
+    ]
 
 
 def test_handle_decide_command_confirms_without_author_when_missing(monkeypatch):
@@ -64,7 +76,7 @@ def test_handle_decide_command_confirms_without_author_when_missing(monkeypatch)
     monkeypatch.setattr(bot, "build_decision_service", lambda: service)
     bot.handle_decide_command(
         ack=lambda: responses.append({"acked": True}),
-        command={"text": "We approved snacks."},
+        command={"team_id": "T123", "text": "We approved snacks."},
         respond=lambda **kwargs: responses.append(kwargs),
     )
 
@@ -80,7 +92,7 @@ def test_handle_decide_command_rejects_empty_text(monkeypatch):
 
     bot.handle_decide_command(
         ack=lambda: responses.append({"acked": True}),
-        command={"text": "   "},
+        command={"team_id": "T123", "text": "   "},
         respond=lambda **kwargs: responses.append(kwargs),
     )
 
@@ -101,7 +113,7 @@ def test_handle_decide_command_reports_duplicate_ephemerally(monkeypatch):
     monkeypatch.setattr(bot, "build_decision_service", lambda: service)
     bot.handle_decide_command(
         ack=lambda: responses.append({"acked": True}),
-        command={"text": "We approved snacks."},
+        command={"team_id": "T123", "text": "We approved snacks."},
         respond=lambda **kwargs: responses.append(kwargs),
     )
 
@@ -119,7 +131,7 @@ def test_handle_decide_command_reports_failures_ephemerally(monkeypatch):
     monkeypatch.setattr(bot, "build_decision_service", lambda: service)
     bot.handle_decide_command(
         ack=lambda: responses.append({"acked": True}),
-        command={"text": "We approved snacks."},
+        command={"team_id": "T123", "text": "We approved snacks."},
         respond=lambda **kwargs: responses.append(kwargs),
     )
 
@@ -127,9 +139,31 @@ def test_handle_decide_command_reports_failures_ephemerally(monkeypatch):
         {"acked": True},
         {
             "response_type": "ephemeral",
-            "text": "I couldn't store that decision: database down",
+            "text": "I couldn't store that decision right now.",
         },
     ]
+
+
+def test_handle_decide_command_rejects_wrong_workspace(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    service = FakeDecisionService()
+    responses = []
+
+    monkeypatch.setattr(bot, "build_decision_service", lambda: service)
+    bot.handle_decide_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_OTHER", "text": "We approved snacks."},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "This command is not available in this workspace.",
+        },
+    ]
+    assert service.commands == []
 
 
 def test_handle_connect_folder_command_reports_summary(monkeypatch):
@@ -150,7 +184,11 @@ def test_handle_connect_folder_command_reports_summary(monkeypatch):
 
     bot.handle_connect_folder_command(
         ack=lambda: responses.append({"acked": True}),
-        command={"text": "https://drive.google.com/drive/folders/root", "user_id": "U1"},
+        command={
+            "team_id": "T123",
+            "text": "https://drive.google.com/drive/folders/root",
+            "user_id": "U1",
+        },
         respond=lambda **kwargs: responses.append(kwargs),
     )
 
@@ -171,7 +209,7 @@ def test_handle_disconnect_folder_command_purges_sources(monkeypatch):
 
     bot.handle_disconnect_folder_command(
         ack=lambda: responses.append({"acked": True}),
-        command={"text": "root"},
+        command={"team_id": "T123", "text": "root"},
         respond=lambda **kwargs: responses.append(kwargs),
     )
 
@@ -180,5 +218,51 @@ def test_handle_disconnect_folder_command_purges_sources(monkeypatch):
         {
             "response_type": "ephemeral",
             "text": "Folder disconnected. Removed 2 unreferenced sources.",
+        },
+    ]
+
+
+def test_handle_connect_folder_command_rejects_wrong_workspace(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    responses = []
+
+    bot.handle_connect_folder_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_OTHER", "text": "root"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "This command is not available in this workspace.",
+        },
+    ]
+
+
+def test_handle_connect_folder_command_rejects_non_admin(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    monkeypatch.setattr(
+        bot,
+        "get_ingestion_settings",
+        lambda: SimpleNamespace(
+            app_env="production",
+            drive_sync_admin_user_ids="U_ALLOWED",
+        ),
+    )
+
+    bot.handle_connect_folder_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T123", "user_id": "U_OTHER", "text": "root"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "You are not allowed to manage connected Drive folders.",
         },
     ]
