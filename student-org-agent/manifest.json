@@ -42,6 +42,12 @@
         "description": "Remove your linked Google account",
         "usage_hint": "",
         "should_escape": false
+      },
+      {
+        "command": "/ask",
+        "description": "Ask a question and get an answer from memory",
+        "usage_hint": "What is our current budget?",
+        "should_escape": false
       }
     ]
   },
