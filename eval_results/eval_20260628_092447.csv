@@ -1,0 +1,26 @@
+query,expected_chunk_key,rank,k3_hit,k5_hit,k10_hit,k20_hit,k3_precision,k5_precision,k10_precision,k20_precision
+What budget was set for the spring kickoff event?,eval:train:001,1,True,True,True,True,0.3333,0.2,0.1,0.05
+How much do members have to pay to join?,eval:train:002,3,True,True,True,True,0.3333,0.2,0.1,0.05
+When and where do general meetings take place?,eval:train:003,1,True,True,True,True,0.3333,0.2,0.1,0.05
+Did we buy any presentation equipment?,eval:train:004,1,True,True,True,True,0.3333,0.2,0.1,0.05
+What do officers have to do before resigning?,eval:train:006,1,True,True,True,True,0.3333,0.2,0.1,0.05
+What platform does the club use for documentation?,eval:train:007,1,True,True,True,True,0.3333,0.2,0.1,0.05
+How does the mentorship program work?,eval:train:009,1,True,True,True,True,0.3333,0.2,0.1,0.05
+How many people need to show up for a budget vote to count?,eval:train:011,1,True,True,True,True,0.3333,0.2,0.1,0.05
+What is the deadline to submit expense reimbursements?,eval:train:013,1,True,True,True,True,0.3333,0.2,0.1,0.05
+How much was spent on club hoodies?,eval:train:014,1,True,True,True,True,0.3333,0.2,0.1,0.05
+What happens if a member misses too many meetings?,eval:train:021,1,True,True,True,True,0.3333,0.2,0.1,0.05
+Where should members look for club announcements?,eval:train:023,1,True,True,True,True,0.3333,0.2,0.1,0.05
+What financial reports does the VP Finance need to give?,eval:train:026,1,True,True,True,True,0.3333,0.2,0.1,0.05
+What is the difference between general and premium membership?,eval:train:030,1,True,True,True,True,0.3333,0.2,0.1,0.05
+Are meeting recordings available to members?,eval:train:033,1,True,True,True,True,0.3333,0.2,0.1,0.05
+What is the club doing to help members prepare for case competitions?,eval:train:035,1,True,True,True,True,0.3333,0.2,0.1,0.05
+Is there a limit on how many people can attend a workshop?,eval:train:040,1,True,True,True,True,0.3333,0.2,0.1,0.05
+Who needs to approve a sponsorship deal before it's submitted?,eval:train:043,1,True,True,True,True,0.3333,0.2,0.1,0.05
+Can I raise a concern about something anonymously?,eval:train:047,1,True,True,True,True,0.3333,0.2,0.1,0.05
+How long can exec meetings run?,eval:train:063,1,True,True,True,True,0.3333,0.2,0.1,0.05
+What was approved for the national case competition trip?,eval:train:065,1,True,True,True,True,0.3333,0.2,0.1,0.05
+Who approves social media content before it goes out?,eval:train:069,1,True,True,True,True,0.3333,0.2,0.1,0.05
+How much was the guest speaker paid for the finance careers night?,eval:train:070,1,True,True,True,True,0.3333,0.2,0.1,0.05
+Can non-members come to general meetings?,eval:train:071,1,True,True,True,True,0.3333,0.2,0.1,0.05
+What happens to leftover money at the end of the year?,eval:train:058,1,True,True,True,True,0.3333,0.2,0.1,0.05

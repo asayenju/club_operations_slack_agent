@@ -1,0 +1,212 @@
+{
+  "metadata": {
+    "total": 100,
+    "train_size": 75,
+    "test_size": 25,
+    "note": "75 decide statements ingested into DB; 25 test queries are paraphrases of 25 train entries with ground truth labels."
+  },
+  "train": [
+    {"chunk_key": "eval:train:001", "content": "The club approved $1,200 for the spring kickoff event, covering $800 for catering and $400 for venue decorations.", "topic": "budget/event"},
+    {"chunk_key": "eval:train:002", "content": "We voted to cap annual membership dues at $40 per student, effective next semester.", "topic": "policy/membership"},
+    {"chunk_key": "eval:train:003", "content": "The club has decided to hold general meetings every other Tuesday at 6pm in Building C Room 204.", "topic": "operations/schedule"},
+    {"chunk_key": "eval:train:004", "content": "Approved: purchase of a $350 portable projector and $60 HDMI adapters for presentations.", "topic": "budget/equipment"},
+    {"chunk_key": "eval:train:005", "content": "The club will co-host the end-of-year gala with the Marketing Society. Costs split 50/50.", "topic": "operations/collaboration"},
+    {"chunk_key": "eval:train:006", "content": "We decided to require officers to give two weeks notice before stepping down from their role.", "topic": "policy/officers"},
+    {"chunk_key": "eval:train:007", "content": "The club voted to use Notion as the official documentation platform, replacing Google Docs.", "topic": "operations/tools"},
+    {"chunk_key": "eval:train:008", "content": "Approved a $250 budget for printing and distributing flyers for the recruitment drive.", "topic": "budget/marketing"},
+    {"chunk_key": "eval:train:009", "content": "We have decided to introduce a mentorship program pairing first-year members with senior executives.", "topic": "programs/mentorship"},
+    {"chunk_key": "eval:train:010", "content": "The club approved sending two representatives to the regional conference in March at a cost of $600.", "topic": "budget/travel"},
+    {"chunk_key": "eval:train:011", "content": "Voted to require a quorum of at least 50% of active members for any budget vote to be valid.", "topic": "policy/voting"},
+    {"chunk_key": "eval:train:012", "content": "The club agreed to host a networking night on the last Friday of each semester.", "topic": "events/networking"},
+    {"chunk_key": "eval:train:013", "content": "We decided that all reimbursement requests must be submitted within 30 days of the expense.", "topic": "policy/finance"},
+    {"chunk_key": "eval:train:014", "content": "Approved $500 for custom club merchandise: 50 hoodies at $10 each.", "topic": "budget/merchandise"},
+    {"chunk_key": "eval:train:015", "content": "The club voted to create a social media committee of three members responsible for Instagram and LinkedIn posts.", "topic": "operations/committee"},
+    {"chunk_key": "eval:train:016", "content": "We agreed that all events must be planned and documented at least two weeks in advance.", "topic": "policy/events"},
+    {"chunk_key": "eval:train:017", "content": "The club approved $150 for monthly coffee chats with industry professionals.", "topic": "budget/speakers"},
+    {"chunk_key": "eval:train:018", "content": "Decided to freeze new officer elections until the constitution committee finishes the bylaw revision.", "topic": "policy/elections"},
+    {"chunk_key": "eval:train:019", "content": "The club will partner with the Career Centre to offer resume review workshops twice a semester.", "topic": "programs/workshops"},
+    {"chunk_key": "eval:train:020", "content": "Approved the purchase of $80 worth of whiteboard markers and flip-chart paper for workshops.", "topic": "budget/supplies"},
+    {"chunk_key": "eval:train:021", "content": "We decided to introduce a three-strike attendance policy: members missing three consecutive meetings lose voting rights.", "topic": "policy/attendance"},
+    {"chunk_key": "eval:train:022", "content": "The club approved $900 for the winter formal event: $600 venue rental and $300 for catering.", "topic": "budget/event"},
+    {"chunk_key": "eval:train:023", "content": "Voted to move all club announcements from email to the Slack workspace going forward.", "topic": "operations/communication"},
+    {"chunk_key": "eval:train:024", "content": "The club agreed to create an onboarding package for new members including a welcome letter and FAQ.", "topic": "operations/onboarding"},
+    {"chunk_key": "eval:train:025", "content": "Approved $200 for a subscription to a design tool to produce professional club posters.", "topic": "budget/software"},
+    {"chunk_key": "eval:train:026", "content": "We decided that the VP Finance must present a monthly budget report at each general meeting.", "topic": "policy/reporting"},
+    {"chunk_key": "eval:train:027", "content": "The club voted to hold an annual leadership retreat for officers at the start of the fall semester.", "topic": "events/retreat"},
+    {"chunk_key": "eval:train:028", "content": "Approved $75 for name tags and printed agendas for the annual general meeting.", "topic": "budget/supplies"},
+    {"chunk_key": "eval:train:029", "content": "We agreed to implement a peer-review process for all written content published on the club website.", "topic": "policy/content"},
+    {"chunk_key": "eval:train:030", "content": "The club decided to offer two types of membership: general membership (free) and premium membership ($25) with extra perks.", "topic": "policy/membership"},
+    {"chunk_key": "eval:train:031", "content": "Voted to donate 5% of any fundraising surplus to a local student emergency fund.", "topic": "policy/fundraising"},
+    {"chunk_key": "eval:train:032", "content": "The club approved $400 for a welcome-back BBQ at the start of the fall semester.", "topic": "budget/event"},
+    {"chunk_key": "eval:train:033", "content": "We decided to record all general meetings and post the recordings to the club drive within 48 hours.", "topic": "policy/documentation"},
+    {"chunk_key": "eval:train:034", "content": "Approved a $300 grant from the student union to cover printing costs for the club journal.", "topic": "budget/grant"},
+    {"chunk_key": "eval:train:035", "content": "The club agreed to run a case-competition team this semester with a $200 prep budget.", "topic": "programs/competition"},
+    {"chunk_key": "eval:train:036", "content": "Voted to require all officers to complete the university's financial accountability training by September.", "topic": "policy/training"},
+    {"chunk_key": "eval:train:037", "content": "We decided to invite a panel of alumni to speak at the spring networking event.", "topic": "events/speakers"},
+    {"chunk_key": "eval:train:038", "content": "The club approved $120 for a gift card raffle prize at the end-of-year celebration.", "topic": "budget/event"},
+    {"chunk_key": "eval:train:039", "content": "Decided to create a shared Google Calendar visible to all club members for events and deadlines.", "topic": "operations/tools"},
+    {"chunk_key": "eval:train:040", "content": "The club voted to cap workshop attendance at 30 students to maintain quality.", "topic": "policy/events"},
+    {"chunk_key": "eval:train:041", "content": "Approved $550 for professional photography at the annual gala.", "topic": "budget/event"},
+    {"chunk_key": "eval:train:042", "content": "We agreed to host a panel discussion on career paths in consulting every fall semester.", "topic": "events/panel"},
+    {"chunk_key": "eval:train:043", "content": "The club decided that all sponsorship proposals must be reviewed by the VP Finance before submission.", "topic": "policy/sponsorship"},
+    {"chunk_key": "eval:train:044", "content": "Voted to allocate $180 for team-building escape room activity for exec members.", "topic": "budget/team-building"},
+    {"chunk_key": "eval:train:045", "content": "We decided to launch a weekly newsletter summarising industry news for club members.", "topic": "programs/newsletter"},
+    {"chunk_key": "eval:train:046", "content": "The club approved a $700 catering budget for the mid-semester industry mixer.", "topic": "budget/event"},
+    {"chunk_key": "eval:train:047", "content": "Voted to establish a complaints process where members can anonymously flag concerns to the president.", "topic": "policy/governance"},
+    {"chunk_key": "eval:train:048", "content": "We agreed that the club logo and brand colours may not be altered without a majority vote.", "topic": "policy/branding"},
+    {"chunk_key": "eval:train:049", "content": "The club decided to set up a $500 emergency fund in the club account for unexpected expenses.", "topic": "budget/reserve"},
+    {"chunk_key": "eval:train:050", "content": "Approved $160 for books and reading materials for the club's professional development library.", "topic": "budget/education"},
+    {"chunk_key": "eval:train:051", "content": "The club voted to require all members to sign a code of conduct at the start of each year.", "topic": "policy/conduct"},
+    {"chunk_key": "eval:train:052", "content": "We decided to hold a hackathon in collaboration with the Computer Science Society next semester.", "topic": "events/hackathon"},
+    {"chunk_key": "eval:train:053", "content": "The club approved $220 for prizes at the hackathon: $100 first place, $80 second, $40 third.", "topic": "budget/prizes"},
+    {"chunk_key": "eval:train:054", "content": "Voted to post all meeting minutes on the club website within 72 hours of each meeting.", "topic": "policy/documentation"},
+    {"chunk_key": "eval:train:055", "content": "We agreed to reduce general meeting frequency to once a month during exam periods.", "topic": "policy/schedule"},
+    {"chunk_key": "eval:train:056", "content": "The club decided to apply for the student government's Club Excellence Award this spring.", "topic": "operations/recognition"},
+    {"chunk_key": "eval:train:057", "content": "Approved $90 for a cake and balloons for the end-of-year officer appreciation celebration.", "topic": "budget/event"},
+    {"chunk_key": "eval:train:058", "content": "We decided that any unspent funds at year-end must be carried over, not redistributed.", "topic": "policy/finance"},
+    {"chunk_key": "eval:train:059", "content": "The club voted to host a skills-sharing session where members teach a topic of their choice monthly.", "topic": "programs/workshops"},
+    {"chunk_key": "eval:train:060", "content": "Approved: the club will open officer elections to all members with at least one full semester of membership.", "topic": "policy/elections"},
+    {"chunk_key": "eval:train:061", "content": "We decided to stop selling physical tickets and switch to a free Eventbrite sign-up for all events.", "topic": "operations/events"},
+    {"chunk_key": "eval:train:062", "content": "The club approved $350 for a team dinner to celebrate hitting 100 members.", "topic": "budget/celebration"},
+    {"chunk_key": "eval:train:063", "content": "Voted to mandate that exec meetings run on a strict 60-minute agenda to respect everyone's time.", "topic": "policy/meetings"},
+    {"chunk_key": "eval:train:064", "content": "We agreed to set up a Linktree page linking to all club resources, updated each semester.", "topic": "operations/tools"},
+    {"chunk_key": "eval:train:065", "content": "The club approved $480 for two tickets and registration fees for the national case competition.", "topic": "budget/competition"},
+    {"chunk_key": "eval:train:066", "content": "Decided to form a diversity and inclusion committee to organise at least one cultural event per semester.", "topic": "programs/diversity"},
+    {"chunk_key": "eval:train:067", "content": "The club voted to require sponsorship agreements to be signed at least four weeks before the sponsored event.", "topic": "policy/sponsorship"},
+    {"chunk_key": "eval:train:068", "content": "We approved $130 for a Zoom Pro subscription to support hybrid meetings.", "topic": "budget/software"},
+    {"chunk_key": "eval:train:069", "content": "The club agreed that all social media posts must be approved by the VP Communications before going live.", "topic": "policy/communications"},
+    {"chunk_key": "eval:train:070", "content": "Approved a $600 speaker honorarium for a CFO to present at the finance careers night.", "topic": "budget/speakers"},
+    {"chunk_key": "eval:train:071", "content": "We decided to open the club's general meetings to non-members as guests, limited to two visits before joining.", "topic": "policy/membership"},
+    {"chunk_key": "eval:train:072", "content": "The club voted to use an anonymous online poll to gather feedback after every major event.", "topic": "policy/feedback"},
+    {"chunk_key": "eval:train:073", "content": "Approved $275 for branded tote bags to give to attendees at the spring career fair booth.", "topic": "budget/merchandise"},
+    {"chunk_key": "eval:train:074", "content": "We agreed to maintain a waitlist for oversubscribed workshops and notify waitlisted members 24 hours before.", "topic": "policy/events"},
+    {"chunk_key": "eval:train:075", "content": "The club decided to hold a town hall at the start of each semester to set goals and gather member input.", "topic": "events/governance"}
+  ],
+  "test": [
+    {
+      "query": "What budget was set for the spring kickoff event?",
+      "expected_chunk_key": "eval:train:001",
+      "note": "paraphrase of train:001 — spring kickoff catering/decor budget"
+    },
+    {
+      "query": "How much do members have to pay to join?",
+      "expected_chunk_key": "eval:train:002",
+      "note": "paraphrase of train:002 — membership dues cap"
+    },
+    {
+      "query": "When and where do general meetings take place?",
+      "expected_chunk_key": "eval:train:003",
+      "note": "paraphrase of train:003 — meeting schedule and location"
+    },
+    {
+      "query": "Did we buy any presentation equipment?",
+      "expected_chunk_key": "eval:train:004",
+      "note": "paraphrase of train:004 — projector and HDMI purchase"
+    },
+    {
+      "query": "What do officers have to do before resigning?",
+      "expected_chunk_key": "eval:train:006",
+      "note": "paraphrase of train:006 — officer notice period policy"
+    },
+    {
+      "query": "What platform does the club use for documentation?",
+      "expected_chunk_key": "eval:train:007",
+      "note": "paraphrase of train:007 — Notion as docs platform"
+    },
+    {
+      "query": "How does the mentorship program work?",
+      "expected_chunk_key": "eval:train:009",
+      "note": "paraphrase of train:009 — mentorship program pairing"
+    },
+    {
+      "query": "How many people need to show up for a budget vote to count?",
+      "expected_chunk_key": "eval:train:011",
+      "note": "paraphrase of train:011 — quorum requirement for votes"
+    },
+    {
+      "query": "What is the deadline to submit expense reimbursements?",
+      "expected_chunk_key": "eval:train:013",
+      "note": "paraphrase of train:013 — 30-day reimbursement policy"
+    },
+    {
+      "query": "How much was spent on club hoodies?",
+      "expected_chunk_key": "eval:train:014",
+      "note": "paraphrase of train:014 — merchandise/hoodie budget"
+    },
+    {
+      "query": "What happens if a member misses too many meetings?",
+      "expected_chunk_key": "eval:train:021",
+      "note": "paraphrase of train:021 — attendance strike policy"
+    },
+    {
+      "query": "Where should members look for club announcements?",
+      "expected_chunk_key": "eval:train:023",
+      "note": "paraphrase of train:023 — announcements moved to Slack"
+    },
+    {
+      "query": "What financial reports does the VP Finance need to give?",
+      "expected_chunk_key": "eval:train:026",
+      "note": "paraphrase of train:026 — monthly budget report requirement"
+    },
+    {
+      "query": "What is the difference between general and premium membership?",
+      "expected_chunk_key": "eval:train:030",
+      "note": "paraphrase of train:030 — two-tier membership tiers"
+    },
+    {
+      "query": "Are meeting recordings available to members?",
+      "expected_chunk_key": "eval:train:033",
+      "note": "paraphrase of train:033 — meeting recording policy"
+    },
+    {
+      "query": "What is the club doing to help members prepare for case competitions?",
+      "expected_chunk_key": "eval:train:035",
+      "note": "paraphrase of train:035 — case competition team and budget"
+    },
+    {
+      "query": "Is there a limit on how many people can attend a workshop?",
+      "expected_chunk_key": "eval:train:040",
+      "note": "paraphrase of train:040 — workshop attendance cap"
+    },
+    {
+      "query": "Who needs to approve a sponsorship deal before it's submitted?",
+      "expected_chunk_key": "eval:train:043",
+      "note": "paraphrase of train:043 — sponsorship proposal review policy"
+    },
+    {
+      "query": "Can I raise a concern about something anonymously?",
+      "expected_chunk_key": "eval:train:047",
+      "note": "paraphrase of train:047 — anonymous complaints process"
+    },
+    {
+      "query": "How long can exec meetings run?",
+      "expected_chunk_key": "eval:train:063",
+      "note": "paraphrase of train:063 — 60-minute exec meeting cap"
+    },
+    {
+      "query": "What was approved for the national case competition trip?",
+      "expected_chunk_key": "eval:train:065",
+      "note": "paraphrase of train:065 — competition tickets and registration"
+    },
+    {
+      "query": "Who approves social media content before it goes out?",
+      "expected_chunk_key": "eval:train:069",
+      "note": "paraphrase of train:069 — VP Communications approval policy"
+    },
+    {
+      "query": "How much was the guest speaker paid for the finance careers night?",
+      "expected_chunk_key": "eval:train:070",
+      "note": "paraphrase of train:070 — CFO honorarium"
+    },
+    {
+      "query": "Can non-members come to general meetings?",
+      "expected_chunk_key": "eval:train:071",
+      "note": "paraphrase of train:071 — guest policy for non-members"
+    },
+    {
+      "query": "What happens to leftover money at the end of the year?",
+      "expected_chunk_key": "eval:train:058",
+      "note": "paraphrase of train:058 — unspent funds carryover policy"
+    }
+  ]
+}

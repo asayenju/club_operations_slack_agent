@@ -16,14 +16,17 @@ def get_embedding_client() -> voyageai.Client:
     return voyageai.Client(api_key=api_key)
 
 
-def embed_documents(texts: list[str]) -> list[list[float]]:
+def embed_documents(
+    texts: list[str],
+    input_type: str = "document",
+) -> list[list[float]]:
     if not texts:
         return []
 
     response: Any = get_embedding_client().embed(
         texts,
         model=EMBED_MODEL,
-        input_type="document",
+        input_type=input_type,
         output_dimension=EMBED_DIMENSION,
     )
     return response.embeddings
