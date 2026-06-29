@@ -14,6 +14,7 @@ from ingestion_api.drive_sync import DriveSyncService
 from registrations.repository import SupabaseRegistrationRepository
 from registrations.service import EmailAlreadyRegistered, RegistrationService
 
+from memoryAnswer.service import MemoryAnswerService
 
 logger = logging.getLogger(__name__)
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -297,6 +298,36 @@ def handle_disconnect_folder_command(ack, command, respond):
         response_type="ephemeral",
         text=f"Folder disconnected. Removed {purged} unreferenced sources.",
     )
+
+
+@app.command("/ask")
+def handle_ask_command(ack, command, respond):
+    ack()
+    if not ensure_configured_workspace(command, respond):
+        return
+
+    question = str(command.get("text", "")).strip()
+
+    if not question:
+        respond(
+            response_type="ephemeral",
+            text="Usage: `/ask <your question>`",
+        )
+        return
+
+    try:
+        service = MemoryAnswerService()
+        answer = service.answer(question, command["team_id"])
+        respond(
+            response_type="ephemeral",
+            text=f"{answer.answer}\n_Confidence: {answer.confidence}_",
+        )
+    except Exception:
+        logger.exception("Failed to answer question")
+        respond(
+            response_type="ephemeral",
+            text="I couldn't answer that question right now.",
+        )
 
 
 if __name__ == "__main__":

@@ -2,6 +2,8 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
+from memoryAnswer.service import MemoryAnswer
+
 
 def load_bot_module(monkeypatch):
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
@@ -237,6 +239,106 @@ def test_handle_connect_folder_command_rejects_wrong_workspace(monkeypatch):
         {
             "response_type": "ephemeral",
             "text": "This command is not available in this workspace.",
+        },
+    ]
+
+
+class FakeMemoryAnswerService:
+    def __init__(self, result=None, error=None):
+        self.result = result
+        self.error = error
+        self.calls = []
+
+    def answer(self, question, workspace_id):
+        self.calls.append((question, workspace_id))
+        if self.error:
+            raise self.error
+        return self.result
+
+
+def test_handle_ask_command_rejects_empty_text(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    responses = []
+
+    bot.handle_ask_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T123", "text": "   "},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "Usage: `/ask <your question>`",
+        },
+    ]
+
+
+def test_handle_ask_command_rejects_wrong_workspace(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    responses = []
+
+    bot.handle_ask_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_OTHER", "text": "What is our budget?"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "This command is not available in this workspace.",
+        },
+    ]
+
+
+def test_handle_ask_command_returns_mocked_answer(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    service = FakeMemoryAnswerService(
+        result=MemoryAnswer(
+            answer="We have $500 left in the budget.",
+            sources=["Budget Sheet"],
+            confidence="high",
+        )
+    )
+    monkeypatch.setattr(bot, "MemoryAnswerService", lambda: service)
+
+    bot.handle_ask_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T123", "text": "What is our budget?"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "We have $500 left in the budget.\n_Confidence: high_",
+        },
+    ]
+    assert service.calls == [("What is our budget?", "T123")]
+
+
+def test_handle_ask_command_reports_failures_ephemerally(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    service = FakeMemoryAnswerService(error=RuntimeError("search backend down"))
+    monkeypatch.setattr(bot, "MemoryAnswerService", lambda: service)
+
+    bot.handle_ask_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T123", "text": "What is our budget?"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "I couldn't answer that question right now.",
         },
     ]
 
