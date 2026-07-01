@@ -70,6 +70,7 @@ def search_decisions(
     query: str,
     workspace_id: str,
     limit: int = 5,
+    min_similarity: float = 0.80,
 ) -> list[Evidence]:
     normalized = query.strip()
     if not normalized:
@@ -81,13 +82,15 @@ def search_decisions(
     [vector] = embed_documents([normalized], input_type="query")
     rows = match_documents(workspace_id, vector, limit=clamped_limit, sources=["slack_decide"])
 
-    return [_row_to_evidence(row) for row in rows]
+    results = [_row_to_evidence(row) for row in rows]
+    return [ev for ev in results if ev.similarity is not None and ev.similarity >= min_similarity]
 
 
 def search_knowledge(
     query: str,
     workspace_id: str,
     limit: int = 5,
+    min_similarity: float = 0.80,
 ) -> list[Evidence]:
     normalized = query.strip()
     if not normalized:
@@ -98,7 +101,8 @@ def search_knowledge(
     [vector] = embed_documents([normalized], input_type="query")
     rows = match_documents(workspace_id, vector, limit=clamped_limit, sources=["gdoc", "gsheet"])
 
-    return [_row_to_evidence(row) for row in rows]
+    results = [_row_to_evidence(row) for row in rows]
+    return [ev for ev in results if ev.similarity is not None and ev.similarity >= min_similarity]
 
 
 def _build_citation(source: str, row: dict[str, Any], meta: dict[str, Any]) -> Citation:
