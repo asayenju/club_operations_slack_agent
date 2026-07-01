@@ -297,6 +297,29 @@ curl -X POST http://localhost:8000/webhooks/spreadsheets \
   -d '{"sheet_id":"google-sheet-id"}'
 ```
 
+## Reconciliation proposals
+
+Human-in-the-loop reconciliation findings are stored as durable proposals before
+any write-back behavior runs. Run this migration before enabling proposal
+workflows:
+
+```text
+supabase/migrations/20260701_reconciliation_proposals.sql
+```
+
+The proposal model tracks:
+
+- workspace and proposal ID
+- status: `pending`, `confirmed`, `expired`, `rejected`, or `superseded`
+- source evidence and proposed action payloads
+- Slack channel/message references for posted proposals
+- created and expiry timestamps
+- confirmation metadata: approving Slack user and confirmation timestamp
+- audit events for creation, confirmation, and expiry transitions
+
+Use `ReconciliationProposalService` for state changes so invalid transitions,
+such as confirming an expired proposal, are rejected consistently.
+
 ## Ingestion setup
 
 The ingestion API currently provides a placeholder endpoint for later document
