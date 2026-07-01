@@ -234,17 +234,26 @@ def test_search_knowledge_gdoc_citation_falls_back_to_google_doc(monkeypatch):
     assert results[0].citation.label == "Google Doc"
 
 
-def test_search_knowledge_gsheet_citation_label(monkeypatch):
+def test_search_knowledge_gsheet_citation_label_with_sheet_name(monkeypatch):
+    row = {**FAKE_GSHEET_ROW, "metadata": {"title": "Member Roster", "sheet_name": "Members"}}
     monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
-    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [FAKE_GSHEET_ROW])
+    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [row])
 
     results = search_knowledge(query="members", workspace_id="T123")
     ev = results[0]
     assert ev.source == "gsheet"
     assert ev.citation.source == "gsheet"
-    assert ev.citation.label == "Member Roster"
+    assert ev.citation.label == "Member Roster › Members"
     assert ev.author is None
     assert ev.timestamp is None
+
+
+def test_search_knowledge_gsheet_citation_label_falls_back_to_title_when_no_sheet_name(monkeypatch):
+    monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
+    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [FAKE_GSHEET_ROW])
+
+    results = search_knowledge(query="members", workspace_id="T123")
+    assert results[0].citation.label == "Member Roster"
 
 
 def test_search_knowledge_gsheet_citation_falls_back(monkeypatch):
