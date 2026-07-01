@@ -5,7 +5,6 @@ from supabase import Client, create_client
 
 from common.config import get_ingestion_settings
 
-
 @lru_cache
 def get_supabase_client() -> Client:
     settings = get_ingestion_settings()
@@ -92,3 +91,25 @@ def delete_missing(
         .execute()
     )
     return len(stale_keys)
+
+
+def match_documents(
+    workspace_id: str,
+    query_embedding: list[float],
+    limit: int = 10,
+    sources: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    response = (
+        get_supabase_client()
+        .rpc(
+            "match_documents",
+            {
+                "query_embedding": query_embedding,
+                "match_count": limit,
+                "filter_workspace": workspace_id,
+                "filter_sources": sources,
+            },
+        )
+        .execute()
+    )
+    return response.data or []

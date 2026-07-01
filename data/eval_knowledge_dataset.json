@@ -1,0 +1,848 @@
+{
+  "metadata": {
+    "total": 100,
+    "train_size": 75,
+    "test_size": 25,
+    "note": "40 gdoc + 35 gsheet train chunks. 24 regular test queries are paraphrases of specific train entries; 1 no-evidence query is designed to return nothing above MIN_SIMILARITY=0.70."
+  },
+  "train": [
+    {
+      "chunk_key": "eval:know:001",
+      "source": "gdoc",
+      "content": "The venue for the Winter Formal 2026 was Aria Banquet Hall on King Street West. Room rental cost: $1,800 for the evening, including AV setup and coat-check service.",
+      "topic": "budget/venue",
+      "metadata": {
+        "title": "Event Planning Notes",
+        "heading": "Winter Formal 2026",
+        "heading_path": "Events > Winter Formal 2026"
+      }
+    },
+    {
+      "chunk_key": "eval:know:002",
+      "source": "gdoc",
+      "content": "End-of-year celebration catering was ordered from Campus Catering Co. for $750, covering appetizers, a dessert station, and non-alcoholic beverages for 80 attendees.",
+      "topic": "budget/catering",
+      "metadata": {
+        "title": "End-of-Year Celebration Planning",
+        "heading": "Catering",
+        "heading_path": "Budget > Catering"
+      }
+    },
+    {
+      "chunk_key": "eval:know:003",
+      "source": "gdoc",
+      "content": "The fall networking night was held at the Faculty of Business atrium, Room 230. Maximum capacity 60 people. Booking made via the university room reservation portal two weeks in advance.",
+      "topic": "venue/event",
+      "metadata": {
+        "title": "Fall Networking Night",
+        "heading": "Venue",
+        "heading_path": "Events > Fall Networking Night > Venue"
+      }
+    },
+    {
+      "chunk_key": "eval:know:004",
+      "source": "gdoc",
+      "content": "Reimbursement requests must include an itemized receipt, expense category, and written approval from the VP Finance. Requests submitted more than 30 days after the expense will not be processed.",
+      "topic": "policy/finance",
+      "metadata": {
+        "title": "Finance Handbook",
+        "heading": "Reimbursements",
+        "heading_path": "Finance > Reimbursements"
+      }
+    },
+    {
+      "chunk_key": "eval:know:005",
+      "source": "gdoc",
+      "content": "VP Finance for 2025-2026: Jordan Lee (jordan.lee@university.edu). Responsibilities: budget tracking, processing reimbursements, managing sponsorship invoices, and presenting monthly financial reports.",
+      "topic": "roster/officers",
+      "metadata": {
+        "title": "Officer Contacts 2025-2026",
+        "heading": "Finance",
+        "heading_path": "Officers > Finance"
+      }
+    },
+    {
+      "chunk_key": "eval:know:006",
+      "source": "gdoc",
+      "content": "Club brand colours: Navy Blue (#1A2B5E) and Gold (#C9A84C). Official font: Montserrat Bold for headers, Lato Regular for body. All logo files are stored in the Google Drive brand kit folder. Do not alter colours or fonts without a majority exec vote.",
+      "topic": "branding",
+      "metadata": {
+        "title": "Brand Guidelines",
+        "heading": "Visual Identity",
+        "heading_path": "Brand > Visual Identity"
+      }
+    },
+    {
+      "chunk_key": "eval:know:007",
+      "source": "gdoc",
+      "content": "Spring Kickoff 2026 post-event summary: 94 students attended. Average feedback score: 4.3/5. Total net cost: $1,050 (venue $600, catering $350, printing $100). Recommended venue for next year: same location.",
+      "topic": "event/report",
+      "metadata": {
+        "title": "Spring Kickoff 2026 Report",
+        "heading": "Summary",
+        "heading_path": "Events > Spring Kickoff 2026 > Summary"
+      }
+    },
+    {
+      "chunk_key": "eval:know:008",
+      "source": "gdoc",
+      "content": "Approved platforms: Notion for internal documentation, Google Drive for file storage, Slack for team communication, Eventbrite for event registrations, and Canva Pro for design assets. Personal accounts must not be used for club business.",
+      "topic": "operations/tools",
+      "metadata": {
+        "title": "Club Operations Handbook",
+        "heading": "Tools and Platforms",
+        "heading_path": "Operations > Tools and Platforms"
+      }
+    },
+    {
+      "chunk_key": "eval:know:009",
+      "source": "gdoc",
+      "content": "Semester budget allocation approved at AGM: Events $3,200, Marketing $600, Workshops $800, Team-building $400, Emergency Reserve $500. Total approved annual budget: $5,500.",
+      "topic": "budget/allocation",
+      "metadata": {
+        "title": "2025-2026 Annual Budget",
+        "heading": "Semester Allocations",
+        "heading_path": "Budget > Semester Allocations"
+      }
+    },
+    {
+      "chunk_key": "eval:know:010",
+      "source": "gdoc",
+      "content": "New exec onboarding steps: (1) shadow outgoing exec for two weeks, (2) complete the university financial accountability training module, (3) read the Club Constitution in full, (4) set up Notion and Slack access, (5) meet with the club advisor within the first month.",
+      "topic": "operations/onboarding",
+      "metadata": {
+        "title": "Exec Onboarding Guide",
+        "heading": "Onboarding Checklist",
+        "heading_path": "Operations > Exec Onboarding"
+      }
+    },
+    {
+      "chunk_key": "eval:know:011",
+      "source": "gdoc",
+      "content": "Year-end fund policy: any unspent funds are carried over to the next executive team's budget. Surplus funds cannot be redistributed to members or used for personal expenses. The carry-over amount must be disclosed in the handover document.",
+      "topic": "policy/finance",
+      "metadata": {
+        "title": "Finance Handbook",
+        "heading": "Year-End Fund Policy",
+        "heading_path": "Finance > Year-End Fund Policy"
+      }
+    },
+    {
+      "chunk_key": "eval:know:012",
+      "source": "gdoc",
+      "content": "Venue confirmed for Annual Gala 2026: The Grand Hall at 45 University Ave. Capacity: 200 guests. Rental fee: $2,400. Event date: March 28, 2026. Includes round tables, linens, and basic lighting.",
+      "topic": "venue/event",
+      "metadata": {
+        "title": "Annual Gala 2026 Planning",
+        "heading": "Venue Details",
+        "heading_path": "Events > Annual Gala 2026 > Venue Details"
+      }
+    },
+    {
+      "chunk_key": "eval:know:013",
+      "source": "gdoc",
+      "content": "Speaker bios for Finance Careers Night: Priya Singh (CFO, Meridian Capital), David Osei (Portfolio Manager, TGF Investments), Amanda Wu (VP Finance, Regional Bank). All speakers have agreed to a 20-minute presentation and Q&A.",
+      "topic": "events/speakers",
+      "metadata": {
+        "title": "Finance Careers Night 2026",
+        "heading": "Speaker Profiles",
+        "heading_path": "Events > Finance Careers Night > Speakers"
+      }
+    },
+    {
+      "chunk_key": "eval:know:014",
+      "source": "gdoc",
+      "content": "Constitution Article 4 — Quorum: A quorum of 50% of voting members plus one must be present for any constitutional amendment. General resolutions require a simple majority of those present.",
+      "topic": "policy/governance",
+      "metadata": {
+        "title": "Club Constitution",
+        "heading": "Article 4 — Quorum",
+        "heading_path": "Constitution > Article 4"
+      }
+    },
+    {
+      "chunk_key": "eval:know:015",
+      "source": "gdoc",
+      "content": "Sponsorship tiers for 2025-2026: Bronze ($250 — logo on website), Silver ($500 — logo + social shoutout), Gold ($1,000 — logo + social + speaking slot), Platinum ($2,000+ — full naming rights for one event).",
+      "topic": "sponsorship",
+      "metadata": {
+        "title": "Sponsorship Package 2025-2026",
+        "heading": "Sponsorship Tiers",
+        "heading_path": "Sponsorship > Tiers"
+      }
+    },
+    {
+      "chunk_key": "eval:know:016",
+      "source": "gdoc",
+      "content": "The club's Instagram account (@bizclub_uni) is managed by the VP Communications. Posting frequency: minimum three times per week. All posts must be approved by the VP Communications before going live.",
+      "topic": "operations/social-media",
+      "metadata": {
+        "title": "Social Media Policy",
+        "heading": "Instagram",
+        "heading_path": "Communications > Social Media > Instagram"
+      }
+    },
+    {
+      "chunk_key": "eval:know:017",
+      "source": "gdoc",
+      "content": "Mentorship program structure: each mentor (2nd year or above) is matched with one mentee (1st year). Commitment: 4 meetings per semester. Mentors are expected to help with course selection, club involvement, and career direction.",
+      "topic": "programs/mentorship",
+      "metadata": {
+        "title": "Mentorship Program Guide",
+        "heading": "Program Structure",
+        "heading_path": "Programs > Mentorship > Structure"
+      }
+    },
+    {
+      "chunk_key": "eval:know:018",
+      "source": "gdoc",
+      "content": "The club partners with the university Career Centre to run two resume-review workshops per semester. Workshops are limited to 25 attendees. Booking opens one week before the event via Eventbrite.",
+      "topic": "programs/workshops",
+      "metadata": {
+        "title": "Workshop Schedule 2025-2026",
+        "heading": "Resume Review Workshop",
+        "heading_path": "Workshops > Resume Review"
+      }
+    },
+    {
+      "chunk_key": "eval:know:019",
+      "source": "gdoc",
+      "content": "Meeting minutes — November 12, 2025: Approved $200 for case competition prep materials. Voted 7-2 to invite alumni panel for spring event. Deferred decision on new membership fee structure to next meeting.",
+      "topic": "meeting-notes",
+      "metadata": {
+        "title": "General Meeting Minutes",
+        "heading": "November 12 2025",
+        "heading_path": "Minutes > November 12 2025"
+      }
+    },
+    {
+      "chunk_key": "eval:know:020",
+      "source": "gdoc",
+      "content": "End-of-term handover checklist: transfer Notion ownership, add new exec to Google Drive, update Slack admin list, change Eventbrite account email, submit updated club registration with student union, archive old documents.",
+      "topic": "operations/handover",
+      "metadata": {
+        "title": "Exec Handover Guide",
+        "heading": "Handover Checklist",
+        "heading_path": "Operations > Handover"
+      }
+    },
+    {
+      "chunk_key": "eval:know:021",
+      "source": "gdoc",
+      "content": "The club's emergency reserve fund currently holds $500. It may only be drawn on with unanimous exec approval and must be replenished within the same fiscal year if used.",
+      "topic": "budget/reserve",
+      "metadata": {
+        "title": "Finance Handbook",
+        "heading": "Emergency Reserve",
+        "heading_path": "Finance > Emergency Reserve"
+      }
+    },
+    {
+      "chunk_key": "eval:know:022",
+      "source": "gdoc",
+      "content": "Accessibility policy for events: all club events must be held in wheelchair-accessible venues. Presenters must provide slide decks in advance for translation. ASL interpretation available on request with two weeks notice.",
+      "topic": "policy/accessibility",
+      "metadata": {
+        "title": "Club Policies",
+        "heading": "Accessibility",
+        "heading_path": "Policies > Accessibility"
+      }
+    },
+    {
+      "chunk_key": "eval:know:023",
+      "source": "gdoc",
+      "content": "VP Events for 2025-2026: Marcus Johnson. Responsibilities include booking venues, coordinating catering, managing event registration, and conducting post-event surveys. Reports to the President.",
+      "topic": "roster/officers",
+      "metadata": {
+        "title": "Officer Role Descriptions 2025-2026",
+        "heading": "VP Events",
+        "heading_path": "Officers > VP Events"
+      }
+    },
+    {
+      "chunk_key": "eval:know:024",
+      "source": "gdoc",
+      "content": "The annual leadership retreat for exec members is held at a rented cottage north of the city each September. Attendance is mandatory for all exec members. Budget: $1,200 covering accommodation, meals, and activities.",
+      "topic": "events/retreat",
+      "metadata": {
+        "title": "Exec Leadership Retreat",
+        "heading": "Retreat Overview",
+        "heading_path": "Events > Exec Retreat > Overview"
+      }
+    },
+    {
+      "chunk_key": "eval:know:025",
+      "source": "gdoc",
+      "content": "The club's official email is bizclub@university.edu. All external correspondence must go through this address. The president and VP Communications share access. Response time target: 48 hours.",
+      "topic": "operations/communication",
+      "metadata": {
+        "title": "Club Operations Handbook",
+        "heading": "External Communication",
+        "heading_path": "Operations > Communication"
+      }
+    },
+    {
+      "chunk_key": "eval:know:026",
+      "source": "gdoc",
+      "content": "Elections are held in March each year. All candidates must have been general members for at least one full semester. Nominations open two weeks before election day. Results announced within 24 hours of voting.",
+      "topic": "policy/elections",
+      "metadata": {
+        "title": "Club Constitution",
+        "heading": "Article 7 — Elections",
+        "heading_path": "Constitution > Article 7"
+      }
+    },
+    {
+      "chunk_key": "eval:know:027",
+      "source": "gdoc",
+      "content": "Photography at club events: the club contracts a student photographer at $80/event. Photos are shared in the Google Drive events folder within one week. Members must opt out if they do not consent to being photographed.",
+      "topic": "policy/events",
+      "metadata": {
+        "title": "Event Planning Handbook",
+        "heading": "Photography Policy",
+        "heading_path": "Events > Photography Policy"
+      }
+    },
+    {
+      "chunk_key": "eval:know:028",
+      "source": "gdoc",
+      "content": "The club's fiscal year runs from May 1 to April 30. The VP Finance must submit an audited budget summary to the student union by April 15 each year. Failure to file on time may result in suspension of club funding.",
+      "topic": "policy/finance",
+      "metadata": {
+        "title": "Finance Handbook",
+        "heading": "Fiscal Year and Reporting",
+        "heading_path": "Finance > Fiscal Year"
+      }
+    },
+    {
+      "chunk_key": "eval:know:029",
+      "source": "gdoc",
+      "content": "Workshop feedback summary — Q1 2025: Resume Review avg. 4.5/5 (n=24). Finance 101 avg. 4.1/5 (n=19). Case Prep avg. 4.7/5 (n=21). Most common request: more interactive elements and smaller group sizes.",
+      "topic": "programs/feedback",
+      "metadata": {
+        "title": "Workshop Feedback Summary Q1 2025",
+        "heading": "Overall Results",
+        "heading_path": "Workshops > Feedback > Q1 2025"
+      }
+    },
+    {
+      "chunk_key": "eval:know:030",
+      "source": "gdoc",
+      "content": "The diversity and inclusion committee is responsible for at least one cultural event per semester. The committee has a budget of $300 per event and reports to the VP Equity. Membership is open to all club members.",
+      "topic": "programs/diversity",
+      "metadata": {
+        "title": "Club Committee Structure",
+        "heading": "Diversity and Inclusion Committee",
+        "heading_path": "Committees > D&I"
+      }
+    },
+    {
+      "chunk_key": "eval:know:031",
+      "source": "gdoc",
+      "content": "Partnerships and MOU: the club has a signed Memorandum of Understanding with the Computer Science Society for co-hosted hackathons. The MOU outlines shared promotion responsibilities and 50/50 cost-splitting.",
+      "topic": "operations/partnerships",
+      "metadata": {
+        "title": "Club Partnerships",
+        "heading": "CS Society MOU",
+        "heading_path": "Partnerships > CS Society"
+      }
+    },
+    {
+      "chunk_key": "eval:know:032",
+      "source": "gdoc",
+      "content": "Code of Conduct: members are expected to act with professionalism at all club events and online. Harassment, discrimination, or misuse of club resources will result in immediate suspension pending review by the executive team.",
+      "topic": "policy/conduct",
+      "metadata": {
+        "title": "Club Policies",
+        "heading": "Code of Conduct",
+        "heading_path": "Policies > Code of Conduct"
+      }
+    },
+    {
+      "chunk_key": "eval:know:033",
+      "source": "gdoc",
+      "content": "Meeting minutes — January 20, 2026: Approved gala venue deposit of $800. Voted to extend case competition registration deadline by one week. Discussed Q3 budget review; $1,450 remaining across all categories.",
+      "topic": "meeting-notes",
+      "metadata": {
+        "title": "General Meeting Minutes",
+        "heading": "January 20 2026",
+        "heading_path": "Minutes > January 20 2026"
+      }
+    },
+    {
+      "chunk_key": "eval:know:034",
+      "source": "gdoc",
+      "content": "Guest policy: non-members may attend up to two club events as guests before being required to join. Guests must be accompanied by a member and must register in advance. Guest spots are capped at 20% of event capacity.",
+      "topic": "policy/membership",
+      "metadata": {
+        "title": "Membership Policy",
+        "heading": "Guest Policy",
+        "heading_path": "Membership > Guest Policy"
+      }
+    },
+    {
+      "chunk_key": "eval:know:035",
+      "source": "gdoc",
+      "content": "Post-event debrief template: attendance count, budget variance (actual vs planned), top 3 things that went well, top 3 things to improve, follow-up actions with owners and due dates. Debrief must be filed within 5 business days.",
+      "topic": "operations/events",
+      "metadata": {
+        "title": "Event Planning Handbook",
+        "heading": "Post-Event Debrief",
+        "heading_path": "Events > Post-Event Debrief"
+      }
+    },
+    {
+      "chunk_key": "eval:know:036",
+      "source": "gdoc",
+      "content": "Speaker honorarium policy: external speakers may receive a honorarium up to $500. Honorarium must be approved by the VP Finance at least two weeks in advance. Payment processed via student union cheque within 30 days.",
+      "topic": "policy/speakers",
+      "metadata": {
+        "title": "Finance Handbook",
+        "heading": "Speaker Honorarium",
+        "heading_path": "Finance > Speaker Honorarium"
+      }
+    },
+    {
+      "chunk_key": "eval:know:037",
+      "source": "gdoc",
+      "content": "The club newsletter is published every other Tuesday via Mailchimp. Content is curated by the VP Communications and includes industry news, upcoming club events, and a member spotlight. Subscribe link on club website.",
+      "topic": "programs/newsletter",
+      "metadata": {
+        "title": "Newsletter Operations",
+        "heading": "Publication Schedule",
+        "heading_path": "Communications > Newsletter"
+      }
+    },
+    {
+      "chunk_key": "eval:know:038",
+      "source": "gdoc",
+      "content": "Procurement policy: all purchases over $100 must be pre-approved by the VP Finance. Purchases over $500 require full exec approval via a motion at a general meeting. Approved vendors are listed in the Finance Handbook appendix.",
+      "topic": "policy/procurement",
+      "metadata": {
+        "title": "Finance Handbook",
+        "heading": "Procurement Policy",
+        "heading_path": "Finance > Procurement"
+      }
+    },
+    {
+      "chunk_key": "eval:know:039",
+      "source": "gdoc",
+      "content": "Handover document from 2024-2025 to 2025-2026 exec: unspent carry-over balance $342. Open sponsorship negotiation with Alpha Consulting (follow up by October 1). Pending venue refund from winter formal deposit ($200).",
+      "topic": "operations/handover",
+      "metadata": {
+        "title": "Exec Handover 2024-2025 to 2025-2026",
+        "heading": "Financial Notes",
+        "heading_path": "Handover > Financial Notes"
+      }
+    },
+    {
+      "chunk_key": "eval:know:040",
+      "source": "gdoc",
+      "content": "Volunteer appreciation event 2026: planned for April 10, casual dinner at The Bistro on campus. Budget: $280 for dinner for 14 volunteers. No formal program — just a thank-you gathering before the academic year ends.",
+      "topic": "events/volunteer",
+      "metadata": {
+        "title": "Volunteer Appreciation 2026",
+        "heading": "Event Details",
+        "heading_path": "Events > Volunteer Appreciation 2026"
+      }
+    },
+    {
+      "chunk_key": "eval:know:041",
+      "source": "gsheet",
+      "content": "Name: Sarah Chen | Role: President | Email: sarah.chen@uni.edu | Year: 4th | Started: Sep 2025",
+      "topic": "roster/officers",
+      "metadata": { "title": "Club Roster 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:042",
+      "source": "gsheet",
+      "content": "Category: Printing | Description: Recruitment flyers — September intake | Amount: $143.50 | Date: 2025-09-15 | Submitted by: VP Marketing | Status: Reimbursed",
+      "topic": "expenses/printing",
+      "metadata": { "title": "Expense Tracker 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:043",
+      "source": "gsheet",
+      "content": "Case Competition Team Sign-Ups: 14 members registered as of 2026-01-08. Registration deadline: 2026-01-10. Maximum team size: 20. Spots remaining: 6.",
+      "topic": "events/sign-up",
+      "metadata": { "title": "Case Competition Sign-Ups 2026" }
+    },
+    {
+      "chunk_key": "eval:know:044",
+      "source": "gsheet",
+      "content": "Name: Marcus Johnson | Role: VP Events | Email: mjohnson@uni.edu | Phone: 416-555-0182 | Year: 3rd",
+      "topic": "roster/officers",
+      "metadata": { "title": "Exec Contact List 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:045",
+      "source": "gsheet",
+      "content": "Finance Committee Members: Jordan Lee (VP Finance, Chair), Alice Park (Director of Budgeting), Tom Ren (Director of Sponsorship), Priya Singh (Faculty Advisor, non-voting)",
+      "topic": "committee/finance",
+      "metadata": { "title": "Committee Membership 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:046",
+      "source": "gsheet",
+      "content": "Item: Spring Formal — Royal Hall venue | Cost: $1,600 | Deposit Paid: $400 on 2026-02-01 | Balance Due: $1,200 on 2026-03-15 | Status: Deposit confirmed",
+      "topic": "expenses/venue",
+      "metadata": { "title": "Spring Formal Budget Tracker" }
+    },
+    {
+      "chunk_key": "eval:know:047",
+      "source": "gsheet",
+      "content": "February 2026 Events: Speed Networking Night (Feb 7, Atrium B), Finance 101 Workshop (Feb 14, Room 302), Case Prep Session (Feb 21, online), Exec Coffee Chat (Feb 28, The Grind Café)",
+      "topic": "schedule/events",
+      "metadata": { "title": "Club Events Calendar 2026" }
+    },
+    {
+      "chunk_key": "eval:know:048",
+      "source": "gsheet",
+      "content": "Social Media Lead: Lily Zhang | Platforms: Instagram (@bizclub_uni), LinkedIn (BizClub University) | Posting schedule: Monday, Thursday, Saturday | Backup: VP Communications",
+      "topic": "operations/social-media",
+      "metadata": { "title": "Marketing Team Contacts" }
+    },
+    {
+      "chunk_key": "eval:know:049",
+      "source": "gsheet",
+      "content": "Budget Remaining — March 2026 snapshot: Events $420, Marketing $180, Workshops $350, Emergency Reserve $500 (untouched). Total unspent: $1,450 of $5,500 allocated.",
+      "topic": "budget/tracker",
+      "metadata": { "title": "2025-2026 Budget Tracker" }
+    },
+    {
+      "chunk_key": "eval:know:050",
+      "source": "gsheet",
+      "content": "Membership count as of February 2026: 127 active general members, 14 executive team members. Total: 141. Lapsed memberships (not renewed): 23.",
+      "topic": "roster/stats",
+      "metadata": { "title": "Membership Stats 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:051",
+      "source": "gsheet",
+      "content": "Exec Team Dinner — November 2025: Venue: Restaurant Botanica | Total bill: $312.40 | Club contribution: $10/person × 14 exec = $140 | Remaining $172.40 paid personally | Receipt on file",
+      "topic": "expenses/events",
+      "metadata": { "title": "Expense Tracker 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:052",
+      "source": "gsheet",
+      "content": "National Case Competition 2026: Attendees — Aisha Patel, Marcus Johnson | Result: Top 10 finish (out of 42 teams) | Travel cost: $480 (flights + hotel) | Registration fee: $150",
+      "topic": "competition/results",
+      "metadata": { "title": "Competition Results and Expenses" }
+    },
+    {
+      "chunk_key": "eval:know:053",
+      "source": "gsheet",
+      "content": "Name: Jordan Lee | Role: VP Finance | Email: jlee@uni.edu | Phone: 647-555-0291 | Year: 3rd | Emergency contact: parent 416-555-0900",
+      "topic": "roster/officers",
+      "metadata": { "title": "Exec Contact List 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:054",
+      "source": "gsheet",
+      "content": "Category: Catering | Description: Fall mixer appetizers — 60 guests | Amount: $480 | Date: 2025-10-18 | Submitted by: VP Events | Status: Paid",
+      "topic": "expenses/catering",
+      "metadata": { "title": "Expense Tracker 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:055",
+      "source": "gsheet",
+      "content": "Workshop Sign-Ups — Case Prep Session Feb 21: 1. Aisha Patel, 2. Tom Ren, 3. Maya Singh, 4. Chris Wu, 5. Dani Park, 6. Leo Tran, 7. Fatima Osei, 8. Sam Kim | Status: Confirmed",
+      "topic": "events/sign-up",
+      "metadata": { "title": "Workshop Sign-Ups Feb 2026" }
+    },
+    {
+      "chunk_key": "eval:know:056",
+      "source": "gsheet",
+      "content": "Sponsorship income 2025-2026: Alpha Consulting $500 (Silver), Campus Bank $1,000 (Gold), TechCorp $250 (Bronze). Total: $1,750. Payments received: all confirmed.",
+      "topic": "sponsorship/income",
+      "metadata": { "title": "Sponsorship Tracker 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:057",
+      "source": "gsheet",
+      "content": "Gala ticket sales: 148 tickets sold at $25 each = $3,700. Student discounts applied: 12 tickets at $15 = $180. Total ticket revenue: $3,880.",
+      "topic": "events/revenue",
+      "metadata": { "title": "Annual Gala 2026 Financial Summary" }
+    },
+    {
+      "chunk_key": "eval:know:058",
+      "source": "gsheet",
+      "content": "Room bookings Q1 2026: Jan 14 — Room 204 (Workshop), Jan 28 — Atrium (Networking), Feb 7 — Atrium B (Speed Networking), Feb 14 — Room 302 (Workshop). All bookings confirmed via portal.",
+      "topic": "operations/venues",
+      "metadata": { "title": "Room Booking Log 2026" }
+    },
+    {
+      "chunk_key": "eval:know:059",
+      "source": "gsheet",
+      "content": "Name: Lily Zhang | Role: VP Communications | Email: lzhang@uni.edu | Year: 2nd | Responsible for: newsletter, social media, press releases",
+      "topic": "roster/officers",
+      "metadata": { "title": "Exec Contact List 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:060",
+      "source": "gsheet",
+      "content": "Category: Software | Description: Canva Pro annual subscription | Amount: $169.99 | Date: 2025-09-01 | Submitted by: VP Communications | Status: Paid via club card",
+      "topic": "expenses/software",
+      "metadata": { "title": "Expense Tracker 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:061",
+      "source": "gsheet",
+      "content": "March 2026 Events: Gala (Mar 28, The Grand Hall), Alumni Panel (Mar 12, Auditorium A), Budget Review Meeting (Mar 5, Room 101), Elections Info Session (Mar 19, online).",
+      "topic": "schedule/events",
+      "metadata": { "title": "Club Events Calendar 2026" }
+    },
+    {
+      "chunk_key": "eval:know:062",
+      "source": "gsheet",
+      "content": "First-year members enrolled in mentorship program 2025-2026: 38 mentees matched with 38 mentors. Unmatched mentees waitlisted: 4. Program coordinator: VP Equity (Aisha Patel).",
+      "topic": "programs/mentorship",
+      "metadata": { "title": "Mentorship Program Roster 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:063",
+      "source": "gsheet",
+      "content": "Equipment inventory: 1× portable projector (purchased Sep 2024, value $350), 2× HDMI adapters ($30 each), 1× laser pointer ($25), 1× portable speaker ($80). Storage: Exec Office, locker 7B.",
+      "topic": "inventory",
+      "metadata": { "title": "Club Equipment Inventory" }
+    },
+    {
+      "chunk_key": "eval:know:064",
+      "source": "gsheet",
+      "content": "Category: Decorations | Description: Winter Formal table centrepieces and string lights | Amount: $215 | Date: 2026-01-20 | Submitted by: VP Events | Status: Reimbursed",
+      "topic": "expenses/decorations",
+      "metadata": { "title": "Expense Tracker 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:065",
+      "source": "gsheet",
+      "content": "Spring Formal ticket sales: 95 tickets sold at $30 each = $2,850. 10 complimentary tickets for exec. Total attendees expected: 105. Revenue: $2,850.",
+      "topic": "events/revenue",
+      "metadata": { "title": "Spring Formal 2026 Financial Summary" }
+    },
+    {
+      "chunk_key": "eval:know:066",
+      "source": "gsheet",
+      "content": "Name: Aisha Patel | Role: VP Equity | Email: apatel@uni.edu | Year: 3rd | Responsible for: D&I committee, mentorship program, accessibility compliance",
+      "topic": "roster/officers",
+      "metadata": { "title": "Exec Contact List 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:067",
+      "source": "gsheet",
+      "content": "Hackathon 2026 registrations: 84 participants registered across 21 teams. University of Toronto: 34, McMaster: 20, York: 18, Other: 12. Registration closed Feb 15.",
+      "topic": "events/sign-up",
+      "metadata": { "title": "Hackathon 2026 Registrations" }
+    },
+    {
+      "chunk_key": "eval:know:068",
+      "source": "gsheet",
+      "content": "Category: Speaker Honorarium | Description: CFO Priya Singh — Finance Careers Night | Amount: $500 | Date: 2026-02-20 | Method: Student union cheque | Status: Processed",
+      "topic": "expenses/speakers",
+      "metadata": { "title": "Expense Tracker 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:069",
+      "source": "gsheet",
+      "content": "Post-event survey results — Winter Formal 2026: Overall rating 4.6/5 (n=89). Venue: 4.8/5. Food: 4.4/5. Music: 4.5/5. Top suggestion: earlier start time.",
+      "topic": "events/feedback",
+      "metadata": { "title": "Winter Formal 2026 Survey Results" }
+    },
+    {
+      "chunk_key": "eval:know:070",
+      "source": "gsheet",
+      "content": "Name: Tom Ren | Role: VP Marketing | Email: tren@uni.edu | Year: 2nd | Responsible for: sponsorship outreach, brand partnerships, merchandise",
+      "topic": "roster/officers",
+      "metadata": { "title": "Exec Contact List 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:071",
+      "source": "gsheet",
+      "content": "Merchandise inventory — Fall 2025: 50 hoodies ordered, 43 sold at $35 each = $1,505. 7 remaining (S: 3, M: 2, L: 2). Profit after $10/unit cost: $25/unit × 43 = $1,075.",
+      "topic": "merchandise/inventory",
+      "metadata": { "title": "Merchandise Tracker 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:072",
+      "source": "gsheet",
+      "content": "Category: Prizes | Description: Hackathon 2026 cash prizes (1st: $100, 2nd: $80, 3rd: $40, best presentation: $30) | Total: $250 | Date: 2026-02-28 | Status: Held in exec account",
+      "topic": "expenses/prizes",
+      "metadata": { "title": "Expense Tracker 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:073",
+      "source": "gsheet",
+      "content": "January 2026 Events: New Year Kickoff (Jan 10, Atrium), Budget Planning Meeting (Jan 14, Room 101), Resume Review Workshop (Jan 21, Room 204), Case Competition Info Night (Jan 28, online).",
+      "topic": "schedule/events",
+      "metadata": { "title": "Club Events Calendar 2026" }
+    },
+    {
+      "chunk_key": "eval:know:074",
+      "source": "gsheet",
+      "content": "Name: David Park | Role: Director of Events | Email: dpark@uni.edu | Year: 2nd | Reports to: VP Events (Marcus Johnson) | Joined exec: September 2025",
+      "topic": "roster/directors",
+      "metadata": { "title": "Club Roster 2025-2026" }
+    },
+    {
+      "chunk_key": "eval:know:075",
+      "source": "gsheet",
+      "content": "Catering vendor comparison: Campus Catering Co. $18/person (reliable, campus approved), Bite Catering $14/person (external, 2-week lead time), Feast & Co $22/person (premium, allergies accommodated). Recommended: Campus Catering Co.",
+      "topic": "operations/vendors",
+      "metadata": { "title": "Vendor Comparison 2025-2026" }
+    }
+  ],
+  "test": [
+    {
+      "query": "How much did the Winter Formal venue cost?",
+      "expected_chunk_key": "eval:know:001",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:001 — Aria Banquet Hall rental for Winter Formal 2026"
+    },
+    {
+      "query": "What did we pay for catering at the end-of-year event?",
+      "expected_chunk_key": "eval:know:002",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:002 — Campus Catering Co. $750 for end-of-year celebration"
+    },
+    {
+      "query": "Where was the fall networking night held?",
+      "expected_chunk_key": "eval:know:003",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:003 — Faculty of Business atrium Room 230"
+    },
+    {
+      "query": "What is the deadline for submitting expense reimbursements?",
+      "expected_chunk_key": "eval:know:004",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:004 — 30-day reimbursement deadline policy"
+    },
+    {
+      "query": "Who is in charge of the club's finances?",
+      "expected_chunk_key": "eval:know:005",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:005 — VP Finance Jordan Lee contact info"
+    },
+    {
+      "query": "What colours and fonts does the club use in its branding?",
+      "expected_chunk_key": "eval:know:006",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:006 — brand colours Navy Blue and Gold, Montserrat/Lato fonts"
+    },
+    {
+      "query": "How many people attended the spring kickoff and what did it cost?",
+      "expected_chunk_key": "eval:know:007",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:007 — Spring Kickoff 2026 attendance 94, cost $1,050"
+    },
+    {
+      "query": "What software and platforms does the club officially use?",
+      "expected_chunk_key": "eval:know:008",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:008 — Notion, Drive, Slack, Eventbrite, Canva"
+    },
+    {
+      "query": "What is the total approved budget for this academic year?",
+      "expected_chunk_key": "eval:know:009",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:009 — $5,500 total with category breakdowns"
+    },
+    {
+      "query": "What steps does a new exec member need to complete when joining?",
+      "expected_chunk_key": "eval:know:010",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:010 — 5-step exec onboarding checklist"
+    },
+    {
+      "query": "What happens to money the club does not spend by the end of the year?",
+      "expected_chunk_key": "eval:know:011",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:011 — unspent funds carry over, cannot be redistributed"
+    },
+    {
+      "query": "Which venue is booked for the annual gala and how much does it cost?",
+      "expected_chunk_key": "eval:know:012",
+      "source_type": "gdoc",
+      "note": "paraphrase of eval:know:012 — The Grand Hall at 45 University Ave, $2,400 rental fee"
+    },
+    {
+      "query": "Who is the club president this year?",
+      "expected_chunk_key": "eval:know:041",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:041 — Sarah Chen, President, 4th year"
+    },
+    {
+      "query": "How much did the club spend on recruitment flyers?",
+      "expected_chunk_key": "eval:know:042",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:042 — $143.50 for September intake flyers"
+    },
+    {
+      "query": "How many students have signed up for the case competition?",
+      "expected_chunk_key": "eval:know:043",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:043 — 14 registered, 6 spots remaining"
+    },
+    {
+      "query": "What is the VP Events' contact information?",
+      "expected_chunk_key": "eval:know:044",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:044 — Marcus Johnson email and phone"
+    },
+    {
+      "query": "Who sits on the finance committee?",
+      "expected_chunk_key": "eval:know:045",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:045 — Jordan Lee, Alice Park, Tom Ren, Priya Singh"
+    },
+    {
+      "query": "How much is the venue costing for the spring formal?",
+      "expected_chunk_key": "eval:know:046",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:046 — Royal Hall $1,600, deposit $400"
+    },
+    {
+      "query": "What events are happening in February?",
+      "expected_chunk_key": "eval:know:047",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:047 — February 2026 calendar with 4 events"
+    },
+    {
+      "query": "Who manages the club's social media accounts?",
+      "expected_chunk_key": "eval:know:048",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:048 — Lily Zhang, Social Media Lead"
+    },
+    {
+      "query": "How much money does the club still have left to spend?",
+      "expected_chunk_key": "eval:know:049",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:049 — $1,450 remaining of $5,500"
+    },
+    {
+      "query": "How many members does the club currently have?",
+      "expected_chunk_key": "eval:know:050",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:050 — 141 total (127 general + 14 exec)"
+    },
+    {
+      "query": "What did the exec team dinner in November cost the club?",
+      "expected_chunk_key": "eval:know:051",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:051 — $140 club contribution, $312.40 total bill"
+    },
+    {
+      "query": "Which members went to the national competition and what did it cost?",
+      "expected_chunk_key": "eval:know:052",
+      "source_type": "gsheet",
+      "note": "paraphrase of eval:know:052 — Aisha Patel + Marcus Johnson, $480 travel + $150 registration"
+    },
+    {
+      "query": "What is the club's official approach to interplanetary colonization risk management?",
+      "expected_chunk_key": null,
+      "no_evidence": true,
+      "source_type": null,
+      "note": "no-evidence test — this topic does not exist in any seeded document; best similarity should be well below 0.70"
+    }
+  ]
+}
