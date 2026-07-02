@@ -2,6 +2,7 @@ import pytest
 
 from tools.vector_search import (
     DECIDE_SEARCH_TOOL,
+    DEFAULT_MIN_SIMILARITY,
     KNOWLEDGE_SEARCH_TOOL,
     DocumentSearchError,
     search_decisions,
@@ -263,6 +264,68 @@ def test_search_knowledge_gsheet_citation_falls_back(monkeypatch):
 
     results = search_knowledge(query="members", workspace_id="T123")
     assert results[0].citation.label == "Google Sheet"
+
+
+# ── min_similarity boundary ───────────────────────────────────────────────────
+
+def test_search_decisions_filters_results_below_threshold(monkeypatch):
+    row = {**FAKE_DECIDE_ROW, "similarity": DEFAULT_MIN_SIMILARITY - 0.01}
+    monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
+    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [row])
+
+    assert search_decisions(query="budget", workspace_id="T123") == []
+
+
+def test_search_decisions_keeps_results_at_threshold(monkeypatch):
+    row = {**FAKE_DECIDE_ROW, "similarity": DEFAULT_MIN_SIMILARITY}
+    monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
+    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [row])
+
+    assert len(search_decisions(query="budget", workspace_id="T123")) == 1
+
+
+def test_search_knowledge_filters_results_below_threshold(monkeypatch):
+    row = {**FAKE_GDOC_ROW, "similarity": DEFAULT_MIN_SIMILARITY - 0.01}
+    monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
+    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [row])
+
+    assert search_knowledge(query="budget", workspace_id="T123") == []
+
+
+def test_search_knowledge_keeps_results_at_threshold(monkeypatch):
+    row = {**FAKE_GDOC_ROW, "similarity": DEFAULT_MIN_SIMILARITY}
+    monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
+    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [row])
+
+    assert len(search_knowledge(query="budget", workspace_id="T123")) == 1
+
+
+# ── modified_time → timestamp extraction ───
+
+def test_search_knowledge_gdoc_exposes_modified_time_as_timestamp(monkeypatch):
+    row = {**FAKE_GDOC_ROW, "metadata": {**FAKE_GDOC_ROW["metadata"], "modified_time": "2026-05-01T12:00:00Z"}}
+    monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
+    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [row])
+
+    results = search_knowledge(query="budget", workspace_id="T123")
+    assert results[0].timestamp == "2026-05-01T12:00:00Z"
+
+
+def test_search_knowledge_gsheet_exposes_modified_time_as_timestamp(monkeypatch):
+    row = {**FAKE_GSHEET_ROW, "metadata": {**FAKE_GSHEET_ROW["metadata"], "modified_time": "2026-06-10T08:30:00Z"}}
+    monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
+    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [row])
+
+    results = search_knowledge(query="members", workspace_id="T123")
+    assert results[0].timestamp == "2026-06-10T08:30:00Z"
+
+
+def test_search_knowledge_timestamp_is_none_when_modified_time_absent(monkeypatch):
+    monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
+    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [FAKE_GDOC_ROW])
+
+    results = search_knowledge(query="budget", workspace_id="T123")
+    assert results[0].timestamp is None
 
 
 # ── Workspace scoping ─────────────────────────────────────────────────────────

@@ -37,6 +37,34 @@ def score_confidence(evidence: list[Evidence]) -> ConfidenceResult:
 
     if len(source_types) >= 2:
         names = ", ".join(sorted(source_types))
+        doc_types = source_types & {"gdoc", "gsheet"}
+        has_slack = "slack" in source_types
+
+        if has_slack and doc_types:
+            authoritative = _most_recent(evidence, doc_types)
+            if authoritative and authoritative.timestamp:
+                date = authoritative.timestamp[:10]
+                note = (
+                    f" {authoritative.source} takes priority over Slack"
+                    f" (last modified {date})."
+                )
+            else:
+                note = " Doc/Sheet evidence takes priority over Slack."
+            return ConfidenceResult(
+                level="High",
+                reason=f"Found in multiple sources: {names}.{note}",
+            )
+
+        if len(doc_types) > 1:
+            authoritative = _most_recent(evidence, doc_types)
+            if authoritative and authoritative.timestamp:
+                date = authoritative.timestamp[:10]
+                note = f" Most recently modified: {authoritative.source} ({date})."
+                return ConfidenceResult(
+                    level="High",
+                    reason=f"Corroborated by multiple sources: {names}.{note}",
+                )
+
         return ConfidenceResult(
             level="High",
             reason=f"Corroborated by multiple independent sources: {names}.",
@@ -52,3 +80,8 @@ def score_confidence(evidence: list[Evidence]) -> ConfidenceResult:
         level="Low",
         reason=f"Only found in {only_source}, which provides lower confidence.",
     )
+
+
+def _most_recent(evidence: list[Evidence], sources: set[str]) -> Evidence | None:
+    candidates = [ev for ev in evidence if ev.source in sources and ev.timestamp]
+    return max(candidates, key=lambda ev: ev.timestamp) if candidates else None
