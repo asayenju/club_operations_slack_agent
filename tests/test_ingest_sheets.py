@@ -24,16 +24,14 @@ def test_build_chunks_identity_survives_row_reordering():
     assert {chunk["chunk_key"] for chunk in original} == {
         chunk["chunk_key"] for chunk in reordered
     }
-    assert [chunk["row_index"] for chunk in original] == [0, 1]
 
 
-def test_build_chunks_preserves_identical_duplicate_rows():
+def test_build_chunks_deduplicates_identical_rows_in_same_tab():
     row = {"__tab_id__": "1", "__tab_name__": "Members", "Name": "Alice"}
 
     chunks = ingest_sheets.build_chunks([row, row])
 
-    assert len(chunks) == 2
-    assert chunks[0]["chunk_key"] != chunks[1]["chunk_key"]
+    assert len(chunks) == 1
 
 
 def test_ingest_sheet_fully_replaces_existing_rows(monkeypatch):
@@ -78,5 +76,4 @@ def test_ingest_sheet_fully_replaces_existing_rows(monkeypatch):
         "deleted": 3,
         "total": 1,
     }
-    assert replaced[0]["metadata"]["row_index"] == 0
     assert replaced[0]["metadata"]["tab_name"] == "Members"

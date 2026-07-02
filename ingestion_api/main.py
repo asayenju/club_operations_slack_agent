@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Any
 
@@ -11,10 +13,34 @@ from ingestion_api.ingest_sheets import ingest_sheet
 
 settings = get_ingestion_settings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    poll_interval = settings.drive_poll_interval_seconds
+    task = None
+    if poll_interval > 0:
+        async def _poll_loop():
+            while True:
+                await asyncio.sleep(poll_interval)
+                try:
+                    await asyncio.to_thread(DriveSyncService.from_settings().poll_changes)
+                except Exception as exc:
+                    print(f"[poll] drive sync failed: {exc}")
+        task = asyncio.create_task(_poll_loop())
+    yield
+    if task:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 app = FastAPI(
     title="Club Operations Ingestion API",
     description="API for club document and spreadsheet ingestion.",
     version="0.2.0",
+    lifespan=lifespan,
 )
 
 

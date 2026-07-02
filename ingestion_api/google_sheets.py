@@ -34,11 +34,12 @@ def fetch_sheet_rows(sheet_id: str) -> list[dict[str, Any]]:
 
     client = get_sheets_client()
     sheet = client.open_by_key(normalized_id)
+    title = sheet.title
     rows = []
     for worksheet in sheet.worksheets():
         for row in worksheet.get_all_records():
             rows.append({"__tab_id__": str(worksheet.id), "__tab_name__": worksheet.title, **row})
-    return rows
+    return title, rows
 
 
 def row_to_text(row: dict[str, Any]) -> str:
