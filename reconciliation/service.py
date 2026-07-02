@@ -3,10 +3,13 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from reconciliation.models import ProposalStatus, ReconciliationProposal
-from reconciliation.repository import ReconciliationProposalRepository
+from reconciliation.repository import (
+    ProposalTransitionConflict,
+    ReconciliationProposalRepository,
+)
 
 
 class ProposalNotFound(RuntimeError):
@@ -40,7 +43,7 @@ class ReconciliationProposalService:
 
         timestamp = created_at or datetime.now(UTC)
         proposal = ReconciliationProposal(
-            id=proposal_id or str(uuid4()),
+            id=_proposal_id(proposal_id),
             workspace_id=workspace_id,
             status=ProposalStatus.PENDING,
             source_evidence=source_evidence,
@@ -88,7 +91,68 @@ class ReconciliationProposalService:
             timestamp,
             {"approved_by_user_id": approving_user_id},
         )
-        return self.repository.confirm(confirmed)
+        try:
+            return self.repository.confirm(confirmed)
+        except ProposalTransitionConflict as exc:
+            raise InvalidProposalTransition(
+                "proposal is no longer pending or actionable"
+            ) from exc
+
+    def reject(
+        self,
+        *,
+        workspace_id: str,
+        proposal_id: str,
+        rejecting_user_id: str | None = None,
+        rejected_at: datetime | None = None,
+    ) -> ReconciliationProposal:
+        proposal = self._require_proposal(workspace_id, proposal_id)
+        timestamp = rejected_at or datetime.now(UTC)
+        self._require_actionable_pending(proposal, timestamp)
+
+        metadata = (
+            {"rejected_by_user_id": rejecting_user_id}
+            if rejecting_user_id
+            else None
+        )
+        rejected = replace(
+            proposal,
+            status=ProposalStatus.REJECTED,
+        ).with_audit_event("rejected", timestamp, metadata)
+        try:
+            return self.repository.reject(rejected)
+        except ProposalTransitionConflict as exc:
+            raise InvalidProposalTransition(
+                "proposal is no longer pending or actionable"
+            ) from exc
+
+    def supersede(
+        self,
+        *,
+        workspace_id: str,
+        proposal_id: str,
+        superseded_by_proposal_id: str | None = None,
+        superseded_at: datetime | None = None,
+    ) -> ReconciliationProposal:
+        proposal = self._require_proposal(workspace_id, proposal_id)
+        timestamp = superseded_at or datetime.now(UTC)
+        self._require_actionable_pending(proposal, timestamp)
+
+        metadata = (
+            {"superseded_by_proposal_id": _proposal_id(superseded_by_proposal_id)}
+            if superseded_by_proposal_id
+            else None
+        )
+        superseded = replace(
+            proposal,
+            status=ProposalStatus.SUPERSEDED,
+        ).with_audit_event("superseded", timestamp, metadata)
+        try:
+            return self.repository.supersede(superseded)
+        except ProposalTransitionConflict as exc:
+            raise InvalidProposalTransition(
+                "proposal is no longer pending or actionable"
+            ) from exc
 
     def expire_due(
         self,
@@ -104,7 +168,15 @@ class ReconciliationProposalService:
                 proposal,
                 status=ProposalStatus.EXPIRED,
             ).with_audit_event("expired", timestamp)
-            expired.append(self.repository.expire(expired_proposal))
+            try:
+                expired.append(
+                    self.repository.expire(
+                        expired_proposal,
+                        expired_at=timestamp,
+                    )
+                )
+            except ProposalTransitionConflict:
+                continue
         return expired
 
     def _require_proposal(
@@ -122,3 +194,21 @@ class ReconciliationProposalService:
             raise InvalidProposalTransition(
                 f"cannot transition {proposal.status.value} proposal"
             )
+
+    def _require_actionable_pending(
+        self,
+        proposal: ReconciliationProposal,
+        timestamp: datetime,
+    ) -> None:
+        self._require_pending(proposal)
+        if proposal.expires_at <= timestamp:
+            raise InvalidProposalTransition("expired proposals cannot be changed")
+
+
+def _proposal_id(proposal_id: str | None) -> str:
+    if proposal_id is None:
+        return str(uuid4())
+    try:
+        return str(UUID(proposal_id))
+    except ValueError as exc:
+        raise ValueError("proposal_id must be a valid UUID") from exc

@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from supabase import Client, create_client
 
-from reconciliation.models import ProposalStatus, ReconciliationProposal
+from reconciliation.models import (
+    ProposalStatus,
+    ReconciliationProposal,
+    format_datetime,
+)
+
+
+class ProposalTransitionConflict(RuntimeError):
+    pass
+
+
+class ProposalStorageError(RuntimeError):
+    pass
 
 
 class ReconciliationProposalRepository(Protocol):
@@ -35,7 +48,18 @@ class ReconciliationProposalRepository(Protocol):
     def confirm(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
         ...
 
-    def expire(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
+    def expire(
+        self,
+        proposal: ReconciliationProposal,
+        *,
+        expired_at: datetime,
+    ) -> ReconciliationProposal:
+        ...
+
+    def reject(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
+        ...
+
+    def supersede(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
         ...
 
 
@@ -60,7 +84,7 @@ class SupabaseReconciliationProposalRepository:
             .insert(proposal.to_row())
             .execute()
         )
-        return _first_proposal(response.data, proposal)
+        return _required_proposal(response.data)
 
     def get_by_id(
         self,
@@ -111,27 +135,64 @@ class SupabaseReconciliationProposalRepository:
         ]
 
     def confirm(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
-        return self._save(proposal)
+        if proposal.confirmed_at is None:
+            raise ProposalStorageError("confirmed proposals require confirmed_at")
+        return self._save_pending_transition(
+            proposal,
+            expires_after=proposal.confirmed_at,
+        )
 
-    def expire(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
-        return self._save(proposal)
+    def expire(
+        self,
+        proposal: ReconciliationProposal,
+        *,
+        expired_at: datetime,
+    ) -> ReconciliationProposal:
+        return self._save_pending_transition(
+            proposal,
+            expires_at_or_before=expired_at,
+        )
 
-    def _save(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
+    def reject(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
+        return self._save_pending_transition(proposal)
+
+    def supersede(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
+        return self._save_pending_transition(proposal)
+
+    def _save_pending_transition(
+        self,
+        proposal: ReconciliationProposal,
+        *,
+        expires_after: datetime | None = None,
+        expires_at_or_before: datetime | None = None,
+    ) -> ReconciliationProposal:
         row = proposal.to_row()
-        response = (
+        query = (
             self.client.table("reconciliation_proposals")
             .update(row)
             .eq("workspace_id", proposal.workspace_id)
             .eq("id", proposal.id)
-            .execute()
+            .eq("status", ProposalStatus.PENDING.value)
         )
-        return _first_proposal(response.data, proposal)
+        if expires_after is not None:
+            query = query.gt("expires_at", format_datetime(expires_after))
+        if expires_at_or_before is not None:
+            query = query.lte("expires_at", format_datetime(expires_at_or_before))
+        response = query.execute()
+        return _required_transition_proposal(response.data)
 
 
-def _first_proposal(
+def _required_proposal(rows: list[dict] | None) -> ReconciliationProposal:
+    if not rows:
+        raise ProposalStorageError("proposal write did not return a row")
+    return ReconciliationProposal.from_row(rows[0])
+
+
+def _required_transition_proposal(
     rows: list[dict] | None,
-    fallback: ReconciliationProposal,
 ) -> ReconciliationProposal:
     if not rows:
-        return fallback
+        raise ProposalTransitionConflict(
+            "proposal was no longer pending or actionable"
+        )
     return ReconciliationProposal.from_row(rows[0])
