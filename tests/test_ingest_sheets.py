@@ -50,7 +50,7 @@ def test_ingest_sheet_fully_replaces_existing_rows(monkeypatch):
         "get_ingestion_settings",
         lambda: SimpleNamespace(required_workspace_id="T123"),
     )
-    monkeypatch.setattr(ingest_sheets, "fetch_sheet_rows", lambda sheet_id: rows)
+    monkeypatch.setattr(ingest_sheets, "fetch_sheet_rows", lambda sheet_id: ("Test Sheet", rows))
     monkeypatch.setattr(
         ingest_sheets,
         "embed_documents",

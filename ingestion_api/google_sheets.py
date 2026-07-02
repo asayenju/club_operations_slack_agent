@@ -26,7 +26,7 @@ def get_sheets_client() -> gspread.Client:
     return gspread.Client(auth=credentials)
 
 
-def fetch_sheet_rows(sheet_id: str) -> list[dict[str, Any]]:
+def fetch_sheet_rows(sheet_id: str) -> tuple[str, list[dict[str, Any]]]:
     """Fetches all rows from all tabs of a Google Sheet, adding a __tab__ key to each row."""
     normalized_id = sheet_id.strip()
     if not normalized_id:
