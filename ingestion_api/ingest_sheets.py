@@ -71,7 +71,8 @@ def ingest_sheet(sheet_id: str) -> IngestionResult:
         raise ValueError("sheet_id must not be empty")
 
     workspace_id = get_ingestion_settings().required_workspace_id
-    chunks = build_chunks(fetch_sheet_rows(normalized_id))
+    title, rows = fetch_sheet_rows(normalized_id)
+    chunks = build_chunks(rows)
     vectors = embed_documents([chunk["content"] for chunk in chunks])
     if len(vectors) != len(chunks):
         raise RuntimeError(
@@ -90,6 +91,7 @@ def ingest_sheet(sheet_id: str) -> IngestionResult:
                 "content": chunk["content"],
                 "content_hash": chunk["content_hash"],
                 "metadata": {
+                    "title": title,
                     "tab_id": chunk["tab_id"],
                     "tab_name": chunk["tab_name"],
                     "last_ingested": now,
