@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -20,6 +20,9 @@ class InvalidProposalTransition(RuntimeError):
     pass
 
 
+DEFAULT_PROPOSAL_EXPIRY = timedelta(hours=72)
+
+
 class ReconciliationProposalService:
     def __init__(self, repository: ReconciliationProposalRepository):
         self.repository = repository
@@ -30,7 +33,7 @@ class ReconciliationProposalService:
         workspace_id: str,
         source_evidence: list[dict[str, Any]],
         proposed_action: dict[str, Any],
-        expires_at: datetime,
+        expires_at: datetime | None = None,
         slack_channel_id: str | None = None,
         slack_message_ts: str | None = None,
         created_at: datetime | None = None,
@@ -42,6 +45,7 @@ class ReconciliationProposalService:
             raise ValueError("proposed_action must not be empty")
 
         timestamp = created_at or datetime.now(UTC)
+        expiry = expires_at or timestamp + DEFAULT_PROPOSAL_EXPIRY
         proposal = ReconciliationProposal(
             id=_proposal_id(proposal_id),
             workspace_id=workspace_id,
@@ -51,7 +55,7 @@ class ReconciliationProposalService:
             slack_channel_id=slack_channel_id,
             slack_message_ts=slack_message_ts,
             created_at=timestamp,
-            expires_at=expires_at,
+            expires_at=expiry,
         ).with_audit_event("created", timestamp)
         return self.repository.create_pending(proposal)
 
