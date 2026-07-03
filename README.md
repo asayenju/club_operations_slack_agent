@@ -319,6 +319,10 @@ The proposal model tracks:
 
 Use `ReconciliationProposalService` for state changes so invalid transitions,
 such as confirming an expired proposal, are rejected consistently.
+Pending proposals default to expiring 72 hours after creation when callers do
+not provide an explicit expiry timestamp. Run `expire_due(workspace_id)`
+regularly from the reconciliation scheduler or maintenance job to mark overdue
+pending proposals expired before processing late approvals.
 
 ## Ingestion setup
 
