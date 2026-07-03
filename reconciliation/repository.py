@@ -79,9 +79,11 @@ class SupabaseReconciliationProposalRepository:
         self,
         proposal: ReconciliationProposal,
     ) -> ReconciliationProposal:
+        row = proposal.to_row()
+        row["updated_at"] = row["created_at"]
         response = (
             self.client.table("reconciliation_proposals")
-            .insert(proposal.to_row())
+            .insert(row)
             .execute()
         )
         return _required_proposal(response.data)
