@@ -8,7 +8,7 @@ from tools.models import Evidence
 class ConfidenceResult:
     level: Literal["High", "Medium", "Low"]
     reason: str
-    conflict: bool = False
+    conflict: bool | Literal["unclear"] = False
 
 
 def score_confidence(evidence: list[Evidence]) -> ConfidenceResult:
@@ -53,6 +53,7 @@ def score_confidence(evidence: list[Evidence]) -> ConfidenceResult:
             return ConfidenceResult(
                 level="High",
                 reason=f"Found in multiple sources: {names}.{note}",
+                conflict="unclear",
             )
 
         if len(doc_types) > 1:
@@ -63,11 +64,13 @@ def score_confidence(evidence: list[Evidence]) -> ConfidenceResult:
                 return ConfidenceResult(
                     level="High",
                     reason=f"Corroborated by multiple sources: {names}.{note}",
+                    conflict="unclear",
                 )
 
         return ConfidenceResult(
             level="High",
             reason=f"Corroborated by multiple independent sources: {names}.",
+            conflict="unclear",
         )
 
     [only_source] = source_types
