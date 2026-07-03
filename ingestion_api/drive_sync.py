@@ -24,7 +24,7 @@ from ingestion_api.ingest_docs import ingest_doc
 from ingestion_api.ingest_sheets import ingest_sheet
 
 
-Ingestor = Callable[[str], Any]
+Ingestor = Callable[[str, str | None], Any]
 DocumentDeleter = Callable[[str, str, str], int]
 
 
@@ -263,9 +263,9 @@ class DriveSyncService:
 
     def _ingest(self, item: DriveItem) -> None:
         if item.mime_type == DOC_MIME_TYPE:
-            self.doc_ingestor(item.file_id)
+            self.doc_ingestor(item.file_id, item.modified_time)
         elif item.mime_type == SHEET_MIME_TYPE:
-            self.sheet_ingestor(item.file_id)
+            self.sheet_ingestor(item.file_id, item.modified_time)
 
     def _purge_if_unreferenced(self, file: ConnectedFile) -> bool:
         if self.registry.file_reference_count(

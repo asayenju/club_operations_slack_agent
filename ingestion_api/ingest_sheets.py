@@ -64,7 +64,7 @@ def build_chunks(rows: list[dict[str, Any]]) -> list[SheetChunk]:
     return chunks
 
 
-def ingest_sheet(sheet_id: str) -> IngestionResult:
+def ingest_sheet(sheet_id: str, modified_time: str | None = None) -> IngestionResult:
     """Fully replace a changed Sheet after embeddings are ready."""
     normalized_id = sheet_id.strip()
     if not normalized_id:
@@ -95,6 +95,7 @@ def ingest_sheet(sheet_id: str) -> IngestionResult:
                     "tab_id": chunk["tab_id"],
                     "tab_name": chunk["tab_name"],
                     "last_ingested": now,
+                    "modified_time": modified_time,
                 },
                 "embedding": to_pgvector(vector),
                 "updated_at": now,
