@@ -3,6 +3,8 @@ from typing import Literal
 
 from tools.models import Evidence
 
+Agreement = Literal["unknown", "agreeing", "conflicting"]
+
 
 @dataclass(frozen=True)
 class ConfidenceResult:
@@ -11,7 +13,10 @@ class ConfidenceResult:
     conflict: bool | Literal["unclear"] = False
 
 
-def score_confidence(evidence: list[Evidence]) -> ConfidenceResult:
+def score_confidence(
+    evidence: list[Evidence],
+    agreement: Agreement = "unknown",
+) -> ConfidenceResult:
     if not evidence:
         return ConfidenceResult(level="Low", reason="No relevant evidence found.")
 
@@ -40,36 +45,38 @@ def score_confidence(evidence: list[Evidence]) -> ConfidenceResult:
         doc_types = source_types & {"gdoc", "gsheet"}
         has_slack = "slack" in source_types
 
+        priority_note = ""
         if has_slack and doc_types:
             authoritative = _most_recent(evidence, doc_types)
             if authoritative and authoritative.timestamp:
                 date = authoritative.timestamp[:10]
-                note = (
+                priority_note = (
                     f" {authoritative.source} takes priority over Slack"
                     f" (last modified {date})."
                 )
             else:
-                note = " Doc/Sheet evidence takes priority over Slack."
-            return ConfidenceResult(
-                level="High",
-                reason=f"Found in multiple sources: {names}.{note}",
-                conflict="unclear",
-            )
-
-        if len(doc_types) > 1:
+                priority_note = " Doc/Sheet evidence takes priority over Slack."
+        elif len(doc_types) > 1:
             authoritative = _most_recent(evidence, doc_types)
             if authoritative and authoritative.timestamp:
                 date = authoritative.timestamp[:10]
-                note = f" Most recently modified: {authoritative.source} ({date})."
-                return ConfidenceResult(
-                    level="High",
-                    reason=f"Found in multiple sources: {names}.{note} Agreement unverified.",
-                    conflict="unclear",
-                )
+                priority_note = f" Most recently modified: {authoritative.source} ({date})."
 
+        if agreement == "agreeing":
+            return ConfidenceResult(
+                level="High",
+                reason=f"Corroborated by multiple independent sources: {names}.{priority_note}",
+                conflict=False,
+            )
+        if agreement == "conflicting":
+            return ConfidenceResult(
+                level="Medium",
+                reason=f"Found conflicting evidence across multiple sources: {names}.{priority_note}",
+                conflict=True,
+            )
         return ConfidenceResult(
-            level="High",
-            reason=f"Found in multiple sources: {names}. Agreement unverified.",
+            level="Medium",
+            reason=f"Found in multiple source types: {names}. Agreement was not verified deterministically.{priority_note}",
             conflict="unclear",
         )
 
