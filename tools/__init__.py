@@ -5,6 +5,7 @@ from tools.vector_search import (
     search_decisions,
     search_knowledge,
 )
+from tools.confidence import ConfidenceResult, score_confidence
 
 __all__ = [
     "Citation",
@@ -14,4 +15,6 @@ __all__ = [
     "KNOWLEDGE_SEARCH_TOOL",
     "search_decisions",
     "search_knowledge",
+    "ConfidenceResult",
+    "score_confidence",
 ]

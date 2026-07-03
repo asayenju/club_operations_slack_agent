@@ -62,6 +62,9 @@ KNOWLEDGE_SEARCH_TOOL = {
 }
 
 
+DEFAULT_MIN_SIMILARITY = 0.70  # aligns with MIN_SIMILARITY in scripts/eval_retrieval_k.py
+
+
 class DocumentSearchError(RuntimeError):
     pass
 
@@ -70,6 +73,7 @@ def search_decisions(
     query: str,
     workspace_id: str,
     limit: int = 5,
+    min_similarity: float = DEFAULT_MIN_SIMILARITY,
 ) -> list[Evidence]:
     normalized = query.strip()
     if not normalized:
@@ -81,13 +85,15 @@ def search_decisions(
     [vector] = embed_documents([normalized], input_type="query")
     rows = match_documents(workspace_id, vector, limit=clamped_limit, sources=["slack_decide"])
 
-    return [_row_to_evidence(row) for row in rows]
+    results = [_row_to_evidence(row) for row in rows]
+    return [ev for ev in results if ev.similarity is not None and ev.similarity >= min_similarity]
 
 
 def search_knowledge(
     query: str,
     workspace_id: str,
     limit: int = 5,
+    min_similarity: float = DEFAULT_MIN_SIMILARITY,
 ) -> list[Evidence]:
     normalized = query.strip()
     if not normalized:
@@ -98,7 +104,8 @@ def search_knowledge(
     [vector] = embed_documents([normalized], input_type="query")
     rows = match_documents(workspace_id, vector, limit=clamped_limit, sources=["gdoc", "gsheet"])
 
-    return [_row_to_evidence(row) for row in rows]
+    results = [_row_to_evidence(row) for row in rows]
+    return [ev for ev in results if ev.similarity is not None and ev.similarity >= min_similarity]
 
 
 def _build_citation(source: str, row: dict[str, Any], meta: dict[str, Any]) -> Citation:
@@ -146,6 +153,8 @@ def _row_to_evidence(row: dict[str, Any]) -> Evidence:
     if source == "slack_decide":
         author = meta.get("user_name") or row.get("author_id") or None
         timestamp = meta.get("received_at")
+    elif source in ("gdoc", "gsheet"):
+        timestamp = meta.get("modified_time")
 
     return Evidence(
         source=source,

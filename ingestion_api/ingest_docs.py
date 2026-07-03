@@ -96,7 +96,7 @@ def build_chunks(sections: list[DocumentSection]) -> list[DocumentChunk]:
     return list(chunks_by_key.values())
 
 
-def ingest_doc(doc_id: str) -> IngestionResult:
+def ingest_doc(doc_id: str, modified_time: str | None = None) -> IngestionResult:
     normalized_doc_id = doc_id.strip()
     if not normalized_doc_id:
         raise ValueError("doc_id must not be empty")
@@ -137,6 +137,7 @@ def ingest_doc(doc_id: str) -> IngestionResult:
                         "heading": chunk["heading"],
                         "heading_path": chunk["heading_path"],
                         "last_ingested": now,
+                        "modified_time": modified_time,
                     },
                     "embedding": to_pgvector(vector),
                     "updated_at": now,
