@@ -77,6 +77,7 @@ def test_gdoc_and_gsheet_with_timestamps_notes_most_recent():
     assert result.conflict == "unclear"
     assert "gsheet" in result.reason
     assert "2026-06-01" in result.reason
+    assert "Agreement unverified" in result.reason
 
 
 def test_gdoc_and_slack_returns_high_with_doc_priority():

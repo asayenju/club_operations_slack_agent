@@ -63,13 +63,13 @@ def score_confidence(evidence: list[Evidence]) -> ConfidenceResult:
                 note = f" Most recently modified: {authoritative.source} ({date})."
                 return ConfidenceResult(
                     level="High",
-                    reason=f"Corroborated by multiple sources: {names}.{note}",
+                    reason=f"Found in multiple sources: {names}.{note} Agreement unverified.",
                     conflict="unclear",
                 )
 
         return ConfidenceResult(
             level="High",
-            reason=f"Corroborated by multiple independent sources: {names}.",
+            reason=f"Found in multiple sources: {names}. Agreement unverified.",
             conflict="unclear",
         )
 
