@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
-from ingestion_api.main import app
+import ingestion_api.main as ingestion_main
+from ingestion_api.main import app, scheduler
 
 
 def test_health_returns_ok():
@@ -32,3 +33,20 @@ def test_spreadsheet_webhook_accepts_payload():
 
     assert response.status_code == 202
     assert response.json() == {"status": "accepted", "source": "spreadsheets"}
+
+
+def test_slack_backfill_endpoint_accepts_request(monkeypatch):
+    monkeypatch.setattr(ingestion_main, "list_monitored_channels", lambda supabase: [])
+
+    with TestClient(app) as client:
+        response = client.post("/ingest/slack/backfill")
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "accepted", "source": "slack_backfill"}
+
+
+def test_lifespan_registers_daily_reconcile_job():
+    with TestClient(app):
+        jobs = scheduler.get_jobs()
+
+    assert any(job.id == "slack_reconcile" for job in jobs)

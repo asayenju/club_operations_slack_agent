@@ -43,14 +43,11 @@ def _run_backfill() -> None:
         workspace_id = _get_workspace_id()
         channels = list_monitored_channels(supabase)
         for ch in channels:
-            count = backfill_channel(
-                app.client,
-                workspace_id,
-                ch["channel_id"],
-                ch["channel_name"],
-                ch.get("backfill_limit", 200),
+            result = backfill_channel(app.client, supabase, workspace_id, ch)
+            print(
+                f"[backfill] #{ch['channel_name']}: {result['ingested']} ingested, "
+                f"{result['failed']} failed"
             )
-            print(f"[backfill] #{ch['channel_name']}: {count} messages ingested")
     except Exception as exc:
         print(f"[backfill] failed: {exc}")
 

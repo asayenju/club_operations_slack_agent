@@ -56,6 +56,7 @@ class IngestionSettings(BaseAppSettings):
     voyage_api_key: str | None = None
     workspace_id: str | None = None
     slack_backfill_limit: int = 200
+    slack_reconcile_cron_hour: int = 6
 
     def require(self, value: T | None, environment_name: str) -> T:
         if value is None or (isinstance(value, str) and not value.strip()):
