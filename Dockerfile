@@ -12,7 +12,9 @@ COPY student-org-agent/requirements.txt ./student-org-agent/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt -r student-org-agent/requirements.txt
 
 COPY common ./common
+COPY decisions ./decisions
 COPY ingestion_api ./ingestion_api
+COPY registrations ./registrations
 COPY tools ./tools
 COPY student-org-agent ./student-org-agent
 

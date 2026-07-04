@@ -3,8 +3,9 @@
 ## Monitored channels
 
 Channels to backfill/ingest are configured in the `monitored_channels` Supabase
-table (see `migrations/0001_slack_backfill_schema.sql`), not environment
-variables — this lets the channel list change at runtime without a redeploy.
+table (see `supabase/migrations/20260703_monitored_channels.sql`), not
+environment variables — this lets the channel list change at runtime without
+a redeploy.
 
 There is no admin UI yet. Add a channel via the Supabase SQL editor:
 
@@ -30,14 +31,18 @@ needs the scope added and the app reinstalled to the workspace.
 
 ## Known risks
 
-- `documents.embedding` has no declared vector dimension (`extensions.vector`,
-  not `vector(1024)`). This works as long as the embedding model
-  (`voyage-3.5-lite`, 1024-dim) never changes. If `_EMBED_MODEL` in
-  `ingestion_api/embeddings.py` is ever changed to a model with a different
-  output dimension, existing rows and the HNSW index will not be
+- The canonical schema (`supabase/create_documents_table.sql`) declares
+  `embedding vector(1024) NOT NULL`, matching `EMBED_DIMENSION` in
+  `ingestion_api/embeddings.py` (Voyage `voyage-3.5-lite`). If that model or
+  dimension ever changes, existing rows and the HNSW index will not be
   automatically migrated — mixing dimensions in one column will error or
   silently produce meaningless similarity scores. Re-embed all rows and
-  consider migrating the column to a fixed `vector(n)` type if this happens.
-- Two duplicate HNSW indexes currently exist on `documents.embedding`
-  (`documents_embedding_idx`, `documents_embedding_hnsw_idx`) — redundant
-  write-time cost. See `migrations/0002_drop_duplicate_embedding_index.sql`.
+  update the column type if this happens. If your live Supabase instance
+  predates `supabase/create_documents_table.sql`, confirm its `embedding`
+  column actually has a declared dimension (`\d documents` in psql, or the
+  Supabase table editor) rather than assuming it matches this script.
+- Some live Supabase instances may have picked up a duplicate HNSW index
+  on `documents.embedding` from manual dashboard changes (e.g. both
+  `documents_embedding_idx` and `documents_embedding_hnsw_idx`) —
+  redundant write-time cost. Check `pg_indexes` for the `documents` table
+  before running `supabase/migrations/20260703_drop_duplicate_embedding_index.sql`.

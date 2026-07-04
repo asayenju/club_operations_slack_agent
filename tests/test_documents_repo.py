@@ -47,7 +47,7 @@ class _FakeClient:
 
 def test_upsert_chunks_passes_composite_on_conflict(monkeypatch):
     calls = []
-    monkeypatch.setattr(documents_repo, "_get_client", lambda: _FakeClient(calls))
+    monkeypatch.setattr(documents_repo, "get_supabase_client", lambda: _FakeClient(calls))
 
     documents_repo.upsert_chunks([{"chunk_key": "C01:1"}])
 

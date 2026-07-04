@@ -3,7 +3,7 @@ from typing import Any
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from tools.models import RetrievedChunk
+from tools.models import Citation, Evidence
 
 
 SLACK_RTS_SEARCH_TOOL = {
@@ -50,7 +50,7 @@ def search_slack_public_context(
     query: str,
     action_token: str,
     limit: int = 10,
-) -> list[RetrievedChunk]:
+) -> list[Evidence]:
     normalized_query = query.strip()
     if not normalized_query:
         raise ValueError("query must not be empty")
@@ -77,7 +77,7 @@ def search_slack_public_context(
             f"Slack RTS search failed: {response.get('error', 'unknown_error')}"
         )
 
-    return [_message_to_chunk(message) for message in _message_results(response)]
+    return [_message_to_evidence(message) for message in _message_results(response)]
 
 
 def _message_results(response: dict[str, Any]) -> list[dict[str, Any]]:
@@ -86,17 +86,24 @@ def _message_results(response: dict[str, Any]) -> list[dict[str, Any]]:
     return [message for message in messages if isinstance(message, dict)]
 
 
-def _message_to_chunk(message: dict[str, Any]) -> RetrievedChunk:
-    return RetrievedChunk(
+def _message_to_evidence(message: dict[str, Any]) -> Evidence:
+    channel_name = message.get("channel_name", "")
+    message_ts = message.get("message_ts", "")
+    channel_part = f"#{channel_name}" if channel_name else "Slack"
+    label = f"{channel_part} — {message_ts}" if message_ts else channel_part
+
+    return Evidence(
         source="slack",
         text=_message_text(message),
-        permalink=message.get("permalink"),
-        channel_id=message.get("channel_id"),
-        channel_name=message.get("channel_name"),
-        author_user_id=message.get("author_user_id"),
-        author_name=message.get("author_name"),
-        timestamp=message.get("message_ts"),
+        citation=Citation(source="slack", label=label),
+        similarity=None,  # Slack RTS is keyword search, no pgvector score
+        score=None,
+        timestamp=message_ts or None,
+        author=message.get("author_name"),
         metadata={
+            "permalink": message.get("permalink"),
+            "channel_id": message.get("channel_id"),
+            "channel_name": channel_name,
             "team_id": message.get("team_id"),
             "is_author_bot": message.get("is_author_bot"),
             "context_messages": message.get("context_messages") or {},
