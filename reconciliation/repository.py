@@ -140,6 +140,7 @@ class SupabaseReconciliationProposalRepository:
                 .eq("workspace_id", workspace_id)
                 .eq("status", ProposalStatus.PENDING.value)
                 .order("expires_at")
+                .order("id")
             )
         )
         return [
@@ -160,6 +161,7 @@ class SupabaseReconciliationProposalRepository:
                 .eq("status", ProposalStatus.PENDING.value)
                 .lte("expires_at", format_datetime(due_at))
                 .order("expires_at")
+                .order("id")
             )
         )
         return [

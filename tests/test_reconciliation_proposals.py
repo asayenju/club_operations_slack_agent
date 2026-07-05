@@ -36,7 +36,7 @@ class RecordingSupabaseQuery:
         self.filters = []
         self.inserted_row = None
         self.updated_row = None
-        self.order_column = None
+        self.order_columns = []
         self.range_start = None
         self.range_end = None
 
@@ -64,7 +64,7 @@ class RecordingSupabaseQuery:
         return self
 
     def order(self, column):
-        self.order_column = column
+        self.order_columns.append(column)
         return self
 
     def range(self, start, end):
@@ -373,7 +373,7 @@ def test_supabase_list_pending_orders_by_expiry_for_due_scan():
 
     repository.list_pending("T123")
 
-    assert client.query.order_column == "expires_at"
+    assert client.query.order_columns == ["expires_at", "id"]
     assert client.query.range_start == 0
     assert client.query.range_end == PAGE_SIZE - 1
 
@@ -421,7 +421,7 @@ def test_supabase_list_due_filters_by_expiry_before_pagination():
     assert ("eq", "workspace_id", "T123") in client.query.filters
     assert ("eq", "status", ProposalStatus.PENDING.value) in client.query.filters
     assert ("lte", "expires_at", format_datetime(now)) in client.query.filters
-    assert client.query.order_column == "expires_at"
+    assert client.query.order_columns == ["expires_at", "id"]
     assert client.query.range_start == 0
     assert client.query.range_end == PAGE_SIZE - 1
 
