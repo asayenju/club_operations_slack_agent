@@ -315,7 +315,7 @@ The proposal model tracks:
 - Slack channel/message references for posted proposals
 - created and expiry timestamps
 - confirmation metadata: approving Slack user and confirmation timestamp
-- audit events for creation, confirmation, and expiry transitions
+- audit events for creation, confirmation, expiry, rejection, and superseding
 
 Use `ReconciliationProposalService` for state changes so invalid transitions,
 such as confirming an expired proposal, are rejected consistently.

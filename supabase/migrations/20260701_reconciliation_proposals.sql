@@ -1,4 +1,4 @@
-create table if not exists reconciliation_proposals (
+create table if not exists public.reconciliation_proposals (
     id uuid primary key,
     workspace_id text not null,
     status text not null check (
@@ -17,10 +17,12 @@ create table if not exists reconciliation_proposals (
 );
 
 create unique index if not exists reconciliation_proposals_message_ref_idx
-    on reconciliation_proposals (workspace_id, slack_channel_id, slack_message_ts)
+    on public.reconciliation_proposals (workspace_id, slack_channel_id, slack_message_ts)
     where slack_channel_id is not null
       and slack_message_ts is not null;
 
 create index if not exists reconciliation_proposals_pending_idx
-    on reconciliation_proposals (workspace_id, expires_at)
+    on public.reconciliation_proposals (workspace_id, expires_at)
     where status = 'pending';
+
+alter table public.reconciliation_proposals enable row level security;

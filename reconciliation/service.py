@@ -41,17 +41,27 @@ class ReconciliationProposalService:
         if not proposed_action:
             raise ValueError("proposed_action must not be empty")
 
-        timestamp = created_at or datetime.now(UTC)
+        slack_channel_id = _optional_text(slack_channel_id)
+        slack_message_ts = _optional_text(slack_message_ts)
+        if (slack_channel_id is None) != (slack_message_ts is None):
+            raise ValueError(
+                "slack_channel_id and slack_message_ts must be provided together"
+            )
+
+        timestamp = _utc_datetime(created_at or datetime.now(UTC))
+        expiry = _utc_datetime(expires_at)
+        if expiry <= timestamp:
+            raise ValueError("expires_at must be in the future")
         proposal = ReconciliationProposal(
             id=_proposal_id(proposal_id),
-            workspace_id=workspace_id,
+            workspace_id=workspace_id.strip(),
             status=ProposalStatus.PENDING,
             source_evidence=source_evidence,
             proposed_action=proposed_action,
             slack_channel_id=slack_channel_id,
             slack_message_ts=slack_message_ts,
             created_at=timestamp,
-            expires_at=expires_at,
+            expires_at=expiry,
         ).with_audit_event("created", timestamp)
         return self.repository.create_pending(proposal)
 
@@ -75,8 +85,11 @@ class ReconciliationProposalService:
         approving_user_id: str,
         confirmed_at: datetime | None = None,
     ) -> ReconciliationProposal:
+        approving_user_id = approving_user_id.strip()
+        if not approving_user_id:
+            raise ValueError("approving_user_id must not be empty")
         proposal = self._require_proposal(workspace_id, proposal_id)
-        timestamp = confirmed_at or datetime.now(UTC)
+        timestamp = _utc_datetime(confirmed_at or datetime.now(UTC))
         self._require_pending(proposal)
         if proposal.expires_at <= timestamp:
             raise InvalidProposalTransition("expired proposals cannot be confirmed")
@@ -107,7 +120,7 @@ class ReconciliationProposalService:
         rejected_at: datetime | None = None,
     ) -> ReconciliationProposal:
         proposal = self._require_proposal(workspace_id, proposal_id)
-        timestamp = rejected_at or datetime.now(UTC)
+        timestamp = _utc_datetime(rejected_at or datetime.now(UTC))
         self._require_actionable_pending(proposal, timestamp)
 
         metadata = (
@@ -135,7 +148,7 @@ class ReconciliationProposalService:
         superseded_at: datetime | None = None,
     ) -> ReconciliationProposal:
         proposal = self._require_proposal(workspace_id, proposal_id)
-        timestamp = superseded_at or datetime.now(UTC)
+        timestamp = _utc_datetime(superseded_at or datetime.now(UTC))
         self._require_actionable_pending(proposal, timestamp)
 
         metadata = (
@@ -159,11 +172,9 @@ class ReconciliationProposalService:
         workspace_id: str,
         now: datetime | None = None,
     ) -> list[ReconciliationProposal]:
-        timestamp = now or datetime.now(UTC)
+        timestamp = _utc_datetime(now or datetime.now(UTC))
         expired: list[ReconciliationProposal] = []
-        for proposal in self.repository.list_pending(workspace_id):
-            if proposal.expires_at > timestamp:
-                continue
+        for proposal in self.repository.list_due(workspace_id, timestamp):
             expired_proposal = replace(
                 proposal,
                 status=ProposalStatus.EXPIRED,
@@ -184,6 +195,7 @@ class ReconciliationProposalService:
         workspace_id: str,
         proposal_id: str,
     ) -> ReconciliationProposal:
+        proposal_id = _proposal_id(proposal_id)
         proposal = self.repository.get_by_id(workspace_id, proposal_id)
         if proposal is None:
             raise ProposalNotFound("reconciliation proposal was not found")
@@ -212,3 +224,16 @@ def _proposal_id(proposal_id: str | None) -> str:
         return str(UUID(proposal_id))
     except ValueError as exc:
         raise ValueError("proposal_id must be a valid UUID") from exc
+
+
+def _utc_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None

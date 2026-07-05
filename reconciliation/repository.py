@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Protocol
+from datetime import UTC, datetime
+from typing import Any, Callable, Protocol
 
 from supabase import Client, create_client
 
@@ -9,7 +9,10 @@ from reconciliation.models import (
     ProposalStatus,
     ReconciliationProposal,
     format_datetime,
+    parse_datetime,
 )
+
+PAGE_SIZE = 1000
 
 
 class ProposalTransitionConflict(RuntimeError):
@@ -43,6 +46,13 @@ class ReconciliationProposalRepository(Protocol):
         ...
 
     def list_pending(self, workspace_id: str) -> list[ReconciliationProposal]:
+        ...
+
+    def list_due(
+        self,
+        workspace_id: str,
+        due_at: datetime,
+    ) -> list[ReconciliationProposal]:
         ...
 
     def confirm(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
@@ -80,7 +90,7 @@ class SupabaseReconciliationProposalRepository:
         proposal: ReconciliationProposal,
     ) -> ReconciliationProposal:
         row = proposal.to_row()
-        row["updated_at"] = row["created_at"]
+        row["updated_at"] = format_datetime(proposal.created_at)
         response = (
             self.client.table("reconciliation_proposals")
             .insert(row)
@@ -123,17 +133,38 @@ class SupabaseReconciliationProposalRepository:
         return ReconciliationProposal.from_row(rows[0]) if rows else None
 
     def list_pending(self, workspace_id: str) -> list[ReconciliationProposal]:
-        response = (
-            self.client.table("reconciliation_proposals")
-            .select("*")
-            .eq("workspace_id", workspace_id)
-            .eq("status", ProposalStatus.PENDING.value)
-            .order("created_at")
-            .execute()
+        rows = self._fetch_paginated(
+            lambda: (
+                self.client.table("reconciliation_proposals")
+                .select("*")
+                .eq("workspace_id", workspace_id)
+                .eq("status", ProposalStatus.PENDING.value)
+                .order("expires_at")
+            )
         )
         return [
             ReconciliationProposal.from_row(row)
-            for row in response.data or []
+            for row in rows
+        ]
+
+    def list_due(
+        self,
+        workspace_id: str,
+        due_at: datetime,
+    ) -> list[ReconciliationProposal]:
+        rows = self._fetch_paginated(
+            lambda: (
+                self.client.table("reconciliation_proposals")
+                .select("*")
+                .eq("workspace_id", workspace_id)
+                .eq("status", ProposalStatus.PENDING.value)
+                .lte("expires_at", format_datetime(due_at))
+                .order("expires_at")
+            )
+        )
+        return [
+            ReconciliationProposal.from_row(row)
+            for row in rows
         ]
 
     def confirm(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
@@ -142,6 +173,7 @@ class SupabaseReconciliationProposalRepository:
         return self._save_pending_transition(
             proposal,
             expires_after=proposal.confirmed_at,
+            updated_at=proposal.confirmed_at,
         )
 
     def expire(
@@ -153,13 +185,20 @@ class SupabaseReconciliationProposalRepository:
         return self._save_pending_transition(
             proposal,
             expires_at_or_before=expired_at,
+            updated_at=expired_at,
         )
 
     def reject(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
-        return self._save_pending_transition(proposal)
+        return self._save_pending_transition(
+            proposal,
+            updated_at=_last_audit_timestamp(proposal),
+        )
 
     def supersede(self, proposal: ReconciliationProposal) -> ReconciliationProposal:
-        return self._save_pending_transition(proposal)
+        return self._save_pending_transition(
+            proposal,
+            updated_at=_last_audit_timestamp(proposal),
+        )
 
     def _save_pending_transition(
         self,
@@ -167,8 +206,10 @@ class SupabaseReconciliationProposalRepository:
         *,
         expires_after: datetime | None = None,
         expires_at_or_before: datetime | None = None,
+        updated_at: datetime,
     ) -> ReconciliationProposal:
-        row = proposal.to_row()
+        row = proposal.to_update_row()
+        row["updated_at"] = format_datetime(updated_at)
         query = (
             self.client.table("reconciliation_proposals")
             .update(row)
@@ -182,6 +223,25 @@ class SupabaseReconciliationProposalRepository:
             query = query.lte("expires_at", format_datetime(expires_at_or_before))
         response = query.execute()
         return _required_transition_proposal(response.data)
+
+    def _fetch_paginated(
+        self,
+        build_query: Callable[[], Any],
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        start = 0
+        while True:
+            page = (
+                build_query()
+                .range(start, start + PAGE_SIZE - 1)
+                .execute()
+                .data
+                or []
+            )
+            rows.extend(page)
+            if len(page) < PAGE_SIZE:
+                return rows
+            start += PAGE_SIZE
 
 
 def _required_proposal(rows: list[dict] | None) -> ReconciliationProposal:
@@ -198,3 +258,11 @@ def _required_transition_proposal(
             "proposal was no longer pending or actionable"
         )
     return ReconciliationProposal.from_row(rows[0])
+
+
+def _last_audit_timestamp(proposal: ReconciliationProposal) -> datetime:
+    if proposal.audit_log:
+        occurred_at = proposal.audit_log[-1].get("occurred_at")
+        if occurred_at:
+            return parse_datetime(str(occurred_at))
+    return datetime.now(UTC)

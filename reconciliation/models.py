@@ -74,6 +74,12 @@ class ReconciliationProposal:
             "audit_log": self.audit_log,
         }
 
+    def to_update_row(self) -> dict[str, Any]:
+        row = self.to_row()
+        for immutable_column in ("id", "workspace_id", "created_at"):
+            row.pop(immutable_column)
+        return row
+
     def with_audit_event(
         self,
         event: str,
@@ -99,4 +105,6 @@ def parse_datetime(value: str | datetime) -> datetime:
 
 
 def format_datetime(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
     return value.astimezone(UTC).isoformat()

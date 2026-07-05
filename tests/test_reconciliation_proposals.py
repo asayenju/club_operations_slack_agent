@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +10,7 @@ from reconciliation.models import (
     format_datetime,
 )
 from reconciliation.repository import (
+    PAGE_SIZE,
     ProposalTransitionConflict,
     SupabaseReconciliationProposalRepository,
 )
@@ -25,13 +26,26 @@ DUE_PROPOSAL_ID = "00000000-0000-0000-0000-000000000002"
 FUTURE_PROPOSAL_ID = "00000000-0000-0000-0000-000000000003"
 OTHER_PROPOSAL_ID = "00000000-0000-0000-0000-000000000004"
 SUPERSEDING_PROPOSAL_ID = "00000000-0000-0000-0000-000000000005"
+UNKNOWN_PROPOSAL_ID = "00000000-0000-0000-0000-000000000099"
 
 
 class RecordingSupabaseQuery:
-    def __init__(self, *, return_rows=True):
+    def __init__(self, *, return_rows=True, rows=None):
         self.return_rows = return_rows
+        self.rows = rows or []
         self.filters = []
+        self.inserted_row = None
         self.updated_row = None
+        self.order_column = None
+        self.range_start = None
+        self.range_end = None
+
+    def insert(self, row):
+        self.inserted_row = row
+        return self
+
+    def select(self, _columns):
+        return self
 
     def update(self, row):
         self.updated_row = row
@@ -49,19 +63,63 @@ class RecordingSupabaseQuery:
         self.filters.append(("lte", column, value))
         return self
 
+    def order(self, column):
+        self.order_column = column
+        return self
+
+    def range(self, start, end):
+        self.range_start = start
+        self.range_end = end
+        return self
+
     def execute(self):
-        rows = [self.updated_row] if self.return_rows else []
+        if not self.return_rows:
+            rows = []
+        elif self.updated_row is not None:
+            eq_filters = {
+                column: value
+                for operator, column, value in self.filters
+                if operator == "eq"
+            }
+            rows = [
+                {
+                    "id": eq_filters.get("id", PROPOSAL_ID),
+                    "workspace_id": eq_filters.get("workspace_id", "T123"),
+                    "created_at": self.updated_row.get(
+                        "created_at",
+                        self.updated_row["expires_at"],
+                    ),
+                    **self.updated_row,
+                }
+            ]
+        elif self.inserted_row is not None:
+            rows = [self.inserted_row]
+        else:
+            rows = self.rows
+            if self.range_start is not None and self.range_end is not None:
+                rows = rows[self.range_start : self.range_end + 1]
         return SimpleNamespace(data=rows)
 
 
 class RecordingSupabaseClient:
-    def __init__(self, *, return_rows=True):
-        self.query = RecordingSupabaseQuery(return_rows=return_rows)
+    def __init__(self, *, return_rows=True, rows=None):
+        self.return_rows = return_rows
+        self.rows = rows
+        self.queries = []
         self.table_name = None
+
+    @property
+    def query(self):
+        return self.queries[-1]
 
     def table(self, table_name):
         self.table_name = table_name
-        return self.query
+        query = RecordingSupabaseQuery(
+            return_rows=self.return_rows,
+            rows=self.rows,
+        )
+        self.queries.append(query)
+        return query
 
 
 class InMemoryProposalRepository:
@@ -98,6 +156,13 @@ class InMemoryProposalRepository:
             for proposal in self.proposals.values()
             if proposal.workspace_id == workspace_id
             and proposal.status == ProposalStatus.PENDING
+        ]
+
+    def list_due(self, workspace_id, due_at):
+        return [
+            proposal
+            for proposal in self.list_pending(workspace_id)
+            if proposal.expires_at <= due_at
         ]
 
     def confirm(self, proposal):
@@ -185,6 +250,32 @@ def test_proposal_round_trips_to_storage_row():
     assert restored == proposal
 
 
+def test_proposal_update_row_omits_immutable_columns():
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+    proposal = ReconciliationProposal(
+        id="00000000-0000-0000-0000-000000000001",
+        workspace_id="T123",
+        status=ProposalStatus.REJECTED,
+        source_evidence=[],
+        proposed_action={"kind": "notify"},
+        slack_channel_id=None,
+        slack_message_ts=None,
+        created_at=created_at,
+        expires_at=created_at + timedelta(hours=1),
+    )
+
+    row = proposal.to_update_row()
+
+    assert "id" not in row
+    assert "workspace_id" not in row
+    assert "created_at" not in row
+    assert row["status"] == ProposalStatus.REJECTED.value
+
+
+def test_format_datetime_treats_naive_datetimes_as_utc():
+    assert format_datetime(datetime(2026, 7, 1, 10)) == "2026-07-01T10:00:00+00:00"
+
+
 def test_supabase_confirm_update_requires_pending_unexpired_row():
     created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
     confirmed_at = created_at + timedelta(minutes=10)
@@ -211,6 +302,8 @@ def test_supabase_confirm_update_requires_pending_unexpired_row():
     assert ("eq", "id", PROPOSAL_ID) in client.query.filters
     assert ("eq", "status", ProposalStatus.PENDING.value) in client.query.filters
     assert ("gt", "expires_at", format_datetime(confirmed_at)) in client.query.filters
+    assert client.query.updated_row["updated_at"] == format_datetime(confirmed_at)
+    assert "created_at" not in client.query.updated_row
 
 
 def test_supabase_expire_update_requires_pending_due_row():
@@ -234,6 +327,103 @@ def test_supabase_expire_update_requires_pending_due_row():
 
     assert ("eq", "status", ProposalStatus.PENDING.value) in client.query.filters
     assert ("lte", "expires_at", format_datetime(expired_at)) in client.query.filters
+    assert client.query.updated_row["updated_at"] == format_datetime(expired_at)
+    assert "created_at" not in client.query.updated_row
+
+
+def test_supabase_create_pending_sets_updated_at_from_created_at():
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+    proposal = ReconciliationProposal(
+        id=PROPOSAL_ID,
+        workspace_id="T123",
+        status=ProposalStatus.PENDING,
+        source_evidence=[],
+        proposed_action={"kind": "notify"},
+        slack_channel_id="C123",
+        slack_message_ts="1710000000.000100",
+        created_at=created_at,
+        expires_at=created_at + timedelta(hours=1),
+    )
+    client = RecordingSupabaseClient()
+    repository = SupabaseReconciliationProposalRepository(client)
+
+    repository.create_pending(proposal)
+
+    assert client.query.inserted_row["updated_at"] == format_datetime(created_at)
+
+
+def test_supabase_list_pending_orders_by_expiry_for_due_scan():
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+    client = RecordingSupabaseClient(
+        rows=[
+            ReconciliationProposal(
+                id=PROPOSAL_ID,
+                workspace_id="T123",
+                status=ProposalStatus.PENDING,
+                source_evidence=[],
+                proposed_action={"kind": "notify"},
+                slack_channel_id=None,
+                slack_message_ts=None,
+                created_at=created_at,
+                expires_at=created_at + timedelta(hours=1),
+            ).to_row()
+        ]
+    )
+    repository = SupabaseReconciliationProposalRepository(client)
+
+    repository.list_pending("T123")
+
+    assert client.query.order_column == "expires_at"
+    assert client.query.range_start == 0
+    assert client.query.range_end == PAGE_SIZE - 1
+
+
+def test_supabase_list_pending_paginates_all_rows():
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+    rows = [
+        ReconciliationProposal(
+            id=f"00000000-0000-0000-0000-{index + 1:012d}",
+            workspace_id="T123",
+            status=ProposalStatus.PENDING,
+            source_evidence=[],
+            proposed_action={"kind": "notify"},
+            slack_channel_id=None,
+            slack_message_ts=None,
+            created_at=created_at,
+            expires_at=created_at + timedelta(minutes=index + 1),
+        ).to_row()
+        for index in range(PAGE_SIZE + 1)
+    ]
+    client = RecordingSupabaseClient(rows=rows)
+    repository = SupabaseReconciliationProposalRepository(client)
+
+    proposals = repository.list_pending("T123")
+
+    assert len(proposals) == PAGE_SIZE + 1
+    assert len(client.queries) == 2
+    assert (client.queries[0].range_start, client.queries[0].range_end) == (
+        0,
+        PAGE_SIZE - 1,
+    )
+    assert (client.queries[1].range_start, client.queries[1].range_end) == (
+        PAGE_SIZE,
+        (PAGE_SIZE * 2) - 1,
+    )
+
+
+def test_supabase_list_due_filters_by_expiry_before_pagination():
+    now = datetime(2026, 7, 1, 10, tzinfo=UTC)
+    client = RecordingSupabaseClient(rows=[])
+    repository = SupabaseReconciliationProposalRepository(client)
+
+    repository.list_due("T123", now)
+
+    assert ("eq", "workspace_id", "T123") in client.query.filters
+    assert ("eq", "status", ProposalStatus.PENDING.value) in client.query.filters
+    assert ("lte", "expires_at", format_datetime(now)) in client.query.filters
+    assert client.query.order_column == "expires_at"
+    assert client.query.range_start == 0
+    assert client.query.range_end == PAGE_SIZE - 1
 
 
 def test_supabase_transition_raises_when_guard_matches_no_rows():
@@ -284,6 +474,39 @@ def test_create_pending_proposal_records_required_fields():
     assert repository.get_by_id("T123", PROPOSAL_ID) == proposal
 
 
+def test_create_pending_proposal_normalizes_naive_datetimes_to_utc():
+    service, _ = build_service()
+    created_at = datetime(2026, 7, 1, 10)
+    expires_at = datetime(2026, 7, 4, 10)
+
+    proposal = service.create_pending(
+        workspace_id="T123",
+        source_evidence=[],
+        proposed_action={"kind": "notify"},
+        created_at=created_at,
+        expires_at=expires_at,
+        proposal_id=PROPOSAL_ID,
+    )
+
+    assert proposal.created_at == datetime(2026, 7, 1, 10, tzinfo=UTC)
+    assert proposal.expires_at == datetime(2026, 7, 4, 10, tzinfo=UTC)
+
+
+def test_create_pending_proposal_rejects_past_expiry():
+    service, _ = build_service()
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+
+    with pytest.raises(ValueError, match="expires_at must be in the future"):
+        service.create_pending(
+            workspace_id="T123",
+            source_evidence=[],
+            proposed_action={"kind": "notify"},
+            created_at=created_at,
+            expires_at=created_at,
+            proposal_id=PROPOSAL_ID,
+        )
+
+
 def test_create_pending_proposal_rejects_non_uuid_id():
     service, _ = build_service()
     created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
@@ -321,6 +544,44 @@ def test_find_by_slack_message_returns_matching_proposal():
     assert service.find_by_slack_message("T123", "C999", "missing") is None
 
 
+def test_create_pending_rejects_incomplete_slack_message_reference():
+    service, _ = build_service()
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+
+    with pytest.raises(
+        ValueError,
+        match="slack_channel_id and slack_message_ts must be provided together",
+    ):
+        service.create_pending(
+            workspace_id="T123",
+            source_evidence=[],
+            proposed_action={"kind": "notify"},
+            slack_channel_id="C123",
+            created_at=created_at,
+            expires_at=created_at + timedelta(hours=1),
+            proposal_id=PROPOSAL_ID,
+        )
+
+
+def test_create_pending_normalizes_blank_slack_message_reference_to_none():
+    service, _ = build_service()
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+
+    proposal = service.create_pending(
+        workspace_id="T123",
+        source_evidence=[],
+        proposed_action={"kind": "notify"},
+        slack_channel_id=" ",
+        slack_message_ts="",
+        created_at=created_at,
+        expires_at=created_at + timedelta(hours=1),
+        proposal_id=PROPOSAL_ID,
+    )
+
+    assert proposal.slack_channel_id is None
+    assert proposal.slack_message_ts is None
+
+
 def test_confirm_pending_proposal_records_approval_metadata():
     service, _ = build_service()
     created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
@@ -348,10 +609,73 @@ def test_confirm_pending_proposal_records_approval_metadata():
     assert confirmed.audit_log[-1]["approved_by_user_id"] == "UAPPROVER"
 
 
+def test_confirm_pending_proposal_normalizes_approval_time_to_utc():
+    service, _ = build_service()
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+    service.create_pending(
+        workspace_id="T123",
+        source_evidence=[],
+        proposed_action={"kind": "notify"},
+        created_at=created_at,
+        expires_at=created_at + timedelta(hours=1),
+        proposal_id=PROPOSAL_ID,
+    )
+
+    confirmed = service.confirm(
+        workspace_id="T123",
+        proposal_id=PROPOSAL_ID,
+        approving_user_id="UAPPROVER",
+        confirmed_at=datetime(
+            2026,
+            7,
+            1,
+            20,
+            30,
+            tzinfo=timezone(timedelta(hours=10)),
+        ),
+    )
+
+    assert confirmed.confirmed_at == datetime(2026, 7, 1, 10, 30, tzinfo=UTC)
+    assert confirmed.confirmed_at.tzinfo == UTC
+    assert confirmed.audit_log[-1]["occurred_at"] == "2026-07-01T10:30:00+00:00"
+
+
+def test_confirm_pending_proposal_requires_approving_user():
+    service, _ = build_service()
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+    service.create_pending(
+        workspace_id="T123",
+        source_evidence=[],
+        proposed_action={"kind": "notify"},
+        created_at=created_at,
+        expires_at=created_at + timedelta(hours=1),
+        proposal_id=PROPOSAL_ID,
+    )
+
+    with pytest.raises(ValueError, match="approving_user_id must not be empty"):
+        service.confirm(
+            workspace_id="T123",
+            proposal_id=PROPOSAL_ID,
+            approving_user_id=" ",
+            confirmed_at=created_at + timedelta(minutes=10),
+        )
+
+
 def test_confirm_missing_proposal_raises_not_found():
     service, _ = build_service()
 
     with pytest.raises(ProposalNotFound):
+        service.confirm(
+            workspace_id="T123",
+            proposal_id=UNKNOWN_PROPOSAL_ID,
+            approving_user_id="UAPPROVER",
+        )
+
+
+def test_confirm_rejects_non_uuid_proposal_id():
+    service, _ = build_service()
+
+    with pytest.raises(ValueError, match="proposal_id must be a valid UUID"):
         service.confirm(
             workspace_id="T123",
             proposal_id="missing",
