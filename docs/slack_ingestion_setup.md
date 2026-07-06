@@ -19,8 +19,9 @@ Set `enabled = false` to stop ingesting a channel without deleting its row
 
 ## Required Slack scopes
 
-Per the current bot manifest (`student-org-agent/manifest.json`), the app is
-granted:
+Of the full bot manifest (`student-org-agent/manifest.json`, which also grants
+scopes for other features like `/decide` and `/ask`), the scopes relevant to
+Slack ingestion are:
 
 - `channels:history` — read public channel history (and thread replies, which
   use the same scope; Slack has no separate scope for threads).

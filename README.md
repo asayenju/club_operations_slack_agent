@@ -339,8 +339,10 @@ Once a channel's initial backfill completes, it's kept in sync by:
     -H "X-Ingestion-Api-Key: $INGESTION_API_KEY"
   ```
 
-Required Slack scopes (per `student-org-agent/manifest.json`): `channels:history`
-and `im:history`, with event subscriptions `message.channels` and `message.im`.
+Scopes/events required for Slack ingestion specifically (a subset of the full
+bot manifest at `student-org-agent/manifest.json`, which also grants scopes
+for other features like `/decide` and `/ask`): `channels:history` and
+`im:history`, with event subscriptions `message.channels` and `message.im`.
 **Private channels are not supported today** — that would require adding
 `groups:history` and the `message.groups` event, then reinstalling the app.
 

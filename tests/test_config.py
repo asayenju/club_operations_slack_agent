@@ -15,7 +15,10 @@ def test_slack_settings_accepts_supabase_service_key_alias(monkeypatch):
     assert settings.voyage_embed_dimension == 1024
 
 
-def test_ingestion_settings_slack_backfill_defaults():
+def test_ingestion_settings_slack_backfill_defaults(monkeypatch):
+    monkeypatch.delenv("SLACK_BACKFILL_LIMIT", raising=False)
+    monkeypatch.delenv("SLACK_RECONCILE_CRON_HOUR", raising=False)
+
     settings = IngestionSettings(_env_file=None)
 
     assert settings.slack_backfill_limit == 200
