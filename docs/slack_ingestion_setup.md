@@ -19,9 +19,23 @@ Set `enabled = false` to stop ingesting a channel without deleting its row
 
 ## Required Slack scopes
 
+Per the current bot manifest (`student-org-agent/manifest.json`), the app is
+granted:
+
 - `channels:history` — read public channel history (and thread replies, which
   use the same scope; Slack has no separate scope for threads).
-- `groups:history` — same, for private channels the bot has been invited to.
+- `im:history` — read DM history.
+
+Event subscriptions: `message.channels` (public channels) and `message.im`
+(DMs).
+
+**Private channels are not supported today.** The manifest does not include
+`groups:history` or the `message.groups` event subscription, so a channel
+added to `monitored_channels` that the bot can only access as a private
+channel will fail backfill with a `missing_scope` error and will never
+receive real-time events. To add private-channel support: add `groups:history`
+to the bot's OAuth scopes and `message.groups` to its event subscriptions in
+the manifest, then reinstall the app to the workspace.
 
 Run `common.slack_scopes.verify_slack_scopes(client, sample_channel_id=...)`
 against a real monitored channel once after granting scopes (and after any

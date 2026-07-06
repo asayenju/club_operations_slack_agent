@@ -1,4 +1,4 @@
-from common.config import SlackSettings
+from common.config import IngestionSettings, SlackSettings
 
 
 def test_slack_settings_accepts_supabase_service_key_alias(monkeypatch):
@@ -13,3 +13,26 @@ def test_slack_settings_accepts_supabase_service_key_alias(monkeypatch):
     assert settings.supabase_service_role_key == "service-key"
     assert settings.voyage_embed_model == "voyage-3.5-lite"
     assert settings.voyage_embed_dimension == 1024
+
+
+def test_ingestion_settings_slack_backfill_defaults():
+    settings = IngestionSettings(_env_file=None)
+
+    assert settings.slack_backfill_limit == 200
+    assert settings.slack_reconcile_cron_hour == 6
+
+
+def test_ingestion_settings_slack_backfill_limit_overridable(monkeypatch):
+    monkeypatch.setenv("SLACK_BACKFILL_LIMIT", "50")
+
+    settings = IngestionSettings(_env_file=None)
+
+    assert settings.slack_backfill_limit == 50
+
+
+def test_ingestion_settings_slack_reconcile_cron_hour_overridable(monkeypatch):
+    monkeypatch.setenv("SLACK_RECONCILE_CRON_HOUR", "3")
+
+    settings = IngestionSettings(_env_file=None)
+
+    assert settings.slack_reconcile_cron_hour == 3

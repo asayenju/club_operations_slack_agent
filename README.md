@@ -25,12 +25,13 @@ The ingestion API will be available at `http://localhost:8000`.
 The Slack bot will connect using Socket Mode when `SLACK_BOT_TOKEN` and
 `SLACK_APP_TOKEN` are set in `.env`.
 
-The active Slack bot is currently a simple Bolt test app that responds to
-messages containing `hello`. It also supports `/decide` for recording club
-decisions into the existing Supabase `documents` table. Decisions are stored as
-sentence-aware chunks and embedded with Voyage before insertion. Slack Real-time
-Search is implemented separately under `tools/` as a function/tool for a future
-LLM integration.
+The Slack bot responds to messages containing `hello` and supports `/decide`
+for recording club decisions into the existing Supabase `documents` table.
+Decisions are stored as sentence-aware chunks and embedded with Voyage before
+insertion. Slack Real-time Search is implemented separately under `tools/` as
+a function/tool for a future LLM integration. The bot also backfills and
+ingests messages from explicitly monitored channels in the background — see
+[Slack message ingestion](#slack-message-ingestion) below.
 
 Required `.env` values for `/decide`:
 
@@ -299,6 +300,65 @@ curl -X POST http://localhost:8000/webhooks/spreadsheets \
   -H "Content-Type: application/json" \
   -d '{"sheet_id":"google-sheet-id"}'
 ```
+
+## Slack message ingestion
+
+The bot does **not** scan or ingest the workspace's full Slack history. Only
+channels explicitly listed in the `monitored_channels` Supabase table are ever
+backfilled or watched in real time — see
+[`docs/slack_ingestion_setup.md`](docs/slack_ingestion_setup.md) for how to add
+a channel via the Supabase SQL editor (there is no admin UI yet).
+
+Backfill is bounded, not a one-time full scan:
+
+```text
+SLACK_BACKFILL_LIMIT=200
+```
+
+This is the default per-run message budget for a channel's initial backfill,
+overridable per channel via the `monitored_channels.backfill_limit` column.
+Progress is resumable — each channel tracks `oldest_ts_backfilled` and
+`initial_backfill_complete`, so a restart continues where it left off instead
+of re-walking history already covered.
+
+Once a channel's initial backfill completes, it's kept in sync by:
+
+- **Real-time events** — new, edited, and deleted messages are ingested as
+  they happen.
+- **A daily scheduled reconciliation** — a full walk that catches edits and
+  deletions missed in real time, controlled by:
+
+  ```text
+  SLACK_RECONCILE_CRON_HOUR=6
+  ```
+
+- **An on-demand endpoint** for manual/triggered runs:
+
+  ```bash
+  curl -X POST http://localhost:8000/ingest/slack/backfill \
+    -H "X-Ingestion-Api-Key: $INGESTION_API_KEY"
+  ```
+
+Required Slack scopes (per `student-org-agent/manifest.json`): `channels:history`
+and `im:history`, with event subscriptions `message.channels` and `message.im`.
+**Private channels are not supported today** — that would require adding
+`groups:history` and the `message.groups` event, then reinstalling the app.
+
+Manual verification against a test workspace:
+
+1. Insert a test channel row via the Supabase SQL editor:
+
+   ```sql
+   insert into public.monitored_channels (channel_id, channel_name, backfill_limit)
+   values ('C0123456789', 'general', 200);
+   ```
+
+2. Restart the bot (or hit the endpoint above). Confirm rows appear in
+   `documents` for that channel, with `channel_name` correctly populated as
+   `general` — not the raw channel ID.
+3. Post a message in that channel, then edit it, then delete it. Confirm each
+   change is reflected in `documents` shortly after (ingested, re-embedded,
+   and removed, respectively).
 
 ## Reconciliation proposals
 
