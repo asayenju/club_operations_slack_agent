@@ -10,5 +10,5 @@ __pycache__/
 htmlcov/
 eval_results/
 club-operation-slack-agent-ddf0d76c4eb0.json
-client_secret.json
 .DS_Store
+secrets/.DS_Store
