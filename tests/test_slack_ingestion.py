@@ -109,44 +109,20 @@ def test_ingest_stores_thread_ts_in_metadata(monkeypatch):
 # Slice 2 — delete_slack_message
 # ---------------------------------------------------------------------------
 
-def test_delete_removes_chunk(monkeypatch):
+def test_delete_targets_exact_chunk_key(monkeypatch):
     deleted_calls = []
     monkeypatch.setattr(
         slack_ingestion,
-        "existing_keys",
-        lambda workspace_id, source, source_id: {"C01:1234567890.000100", "C01:9999999999.000001"},
-    )
-    monkeypatch.setattr(
-        slack_ingestion,
-        "delete_missing",
-        lambda workspace_id, source, source_id, current_keys: deleted_calls.append(current_keys) or 1,
+        "delete_chunk_key",
+        lambda workspace_id, source, source_id, chunk_key: deleted_calls.append(
+            (workspace_id, source, source_id, chunk_key)
+        )
+        or 1,
     )
 
     slack_ingestion.delete_slack_message("T123", "C01", "1234567890.000100")
 
-    assert len(deleted_calls) == 1
-    # The deleted ts should NOT be in current_keys passed to delete_missing
-    assert "C01:1234567890.000100" not in deleted_calls[0]
-    assert "C01:9999999999.000001" in deleted_calls[0]
-
-
-def test_delete_no_op_when_key_not_in_store(monkeypatch):
-    deleted_calls = []
-    monkeypatch.setattr(
-        slack_ingestion,
-        "existing_keys",
-        lambda workspace_id, source, source_id: set(),
-    )
-    monkeypatch.setattr(
-        slack_ingestion,
-        "delete_missing",
-        lambda workspace_id, source, source_id, current_keys: deleted_calls.append(current_keys) or 0,
-    )
-
-    slack_ingestion.delete_slack_message("T123", "C01", "9999999999.000001")
-
-    # delete_missing still called but with empty set — no actual deletion
-    assert deleted_calls[0] == set()
+    assert deleted_calls == [("T123", "slack", "C01", "C01:1234567890.000100")]
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +133,16 @@ def _channel(channel_id="C01", channel_name="general", **kwargs):
     defaults = {"channel_id": channel_id, "channel_name": channel_name, "backfill_limit": 200}
     defaults.update(kwargs)
     return defaults
+
+
+def _key_state(hashes=None, meta=None):
+    """Build the combined {chunk_key: {content_hash, metadata}} shape existing_key_state returns."""
+    hashes = hashes or {}
+    meta = meta or {}
+    return {
+        key: {"content_hash": content_hash, "metadata": meta.get(key, {})}
+        for key, content_hash in hashes.items()
+    }
 
 
 class _FakeMonitoredTable:
@@ -213,7 +199,7 @@ def _fake_slack_paginated(pages):
 def test_backfill_ingests_new_messages(monkeypatch):
     upserted = []
     messages = [_raw(text=f"Message {i}", ts=f"100000000{i}.000000") for i in range(3)]
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion, "embed_documents", lambda texts: [[0.1] * 1024 for _ in texts])
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", upserted.extend)
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
@@ -228,7 +214,8 @@ def test_backfill_skips_existing_messages(monkeypatch):
     upserted = []
     messages = [_raw(text="Old message", ts="1000000000.000000")]
     monkeypatch.setattr(
-        slack_ingestion, "existing_key_hashes", lambda *a: {"C01:1000000000.000000": "hash"}
+        slack_ingestion, "existing_key_state",
+        lambda *a: _key_state({"C01:1000000000.000000": "hash"}),
     )
     monkeypatch.setattr(slack_ingestion, "embed_documents", lambda texts: [[0.1] * 1024 for _ in texts])
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", upserted.extend)
@@ -248,7 +235,7 @@ def test_backfill_respects_limit(monkeypatch):
             fetched_kwargs.append(kwargs)
             return {"messages": [], "response_metadata": {}}
 
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
 
     slack_ingestion.backfill_channel(FakeClient(), _FakeSupabase(), "T123", _channel(backfill_limit=50))
@@ -262,7 +249,7 @@ def test_backfill_filters_bot_messages(monkeypatch):
         _raw(text="Real message", ts="1000000001.000000"),
         _raw(text="Bot noise", ts="1000000002.000000", bot_id="B01"),
     ]
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion, "embed_documents", lambda texts: [[0.1] * 1024 for _ in texts])
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", upserted.extend)
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
@@ -274,7 +261,7 @@ def test_backfill_filters_bot_messages(monkeypatch):
 
 
 def test_backfill_returns_zero_for_empty_channel(monkeypatch):
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
 
     result = slack_ingestion.backfill_channel(_fake_slack([]), _FakeSupabase(), "T123", _channel())
@@ -287,7 +274,7 @@ def test_backfill_paginates_across_multiple_pages(monkeypatch):
     page1 = ([_raw(text="A", ts="1000000001.000000")], "cursor-1")
     page2 = ([_raw(text="B", ts="1000000002.000000")], None)
     client = _fake_slack_paginated([page1, page2])
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion, "embed_documents", lambda texts: [[0.1] * 1024 for _ in texts])
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", upserted.extend)
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
@@ -307,7 +294,7 @@ def test_backfill_resumes_from_oldest_ts_backfilled(monkeypatch):
             captured_kwargs.append(kwargs)
             return {"messages": [], "response_metadata": {}}
 
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
 
     slack_ingestion.backfill_channel(
@@ -319,7 +306,7 @@ def test_backfill_resumes_from_oldest_ts_backfilled(monkeypatch):
 
 
 def test_backfill_marks_initial_complete_when_cursor_exhausted(monkeypatch):
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
     supabase = _FakeSupabase()
 
@@ -349,7 +336,7 @@ def test_backfill_retries_on_ratelimited_error(monkeypatch):
                 raise SlackApiError("rate limited", _FakeSlackResponse("ratelimited"))
             return {"messages": [], "response_metadata": {}}
 
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
 
     result = slack_ingestion.backfill_channel(FakeClient(), _FakeSupabase(), "T123", _channel())
@@ -365,7 +352,7 @@ def test_backfill_gives_up_after_max_retries_and_records_error(monkeypatch):
         def conversations_history(self, **kwargs):
             raise SlackApiError("rate limited", _FakeSlackResponse("ratelimited"))
 
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
     supabase = _FakeSupabase()
 
@@ -402,7 +389,7 @@ def test_backfill_fetches_thread_replies_for_new_threads(monkeypatch):
     reply = _raw(text="Reply", ts="1000000002.000000", thread_ts="1000000001.000000")
     client = _fake_slack_with_replies([parent], {"1000000001.000000": [reply]})
 
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion, "embed_documents", lambda texts: [[0.1] * 1024 for _ in texts])
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", upserted.extend)
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
@@ -420,10 +407,12 @@ def test_backfill_skips_reply_fetch_when_latest_reply_unchanged(monkeypatch):
     parent = _raw(text="Parent", ts="1000000001.000000", reply_count=1, latest_reply="1000000002.000000")
     client = _fake_slack_with_replies([parent], {"1000000001.000000": []})
 
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {"C01:1000000001.000000": "hash"})
     monkeypatch.setattr(
-        slack_ingestion, "existing_metadata",
-        lambda *a, **k: {"C01:1000000001.000000": {"latest_reply_ts": "1000000002.000000"}},
+        slack_ingestion, "existing_key_state",
+        lambda *a: _key_state(
+            {"C01:1000000001.000000": "hash"},
+            {"C01:1000000001.000000": {"latest_reply_ts": "1000000002.000000"}},
+        ),
     )
     monkeypatch.setattr(slack_ingestion, "embed_documents", lambda texts: [[0.1] * 1024 for _ in texts])
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", upserted.extend)
@@ -441,10 +430,12 @@ def test_backfill_refetches_replies_when_latest_reply_advanced(monkeypatch):
     new_reply = _raw(text="New reply", ts="1000000003.000000", thread_ts="1000000001.000000")
     client = _fake_slack_with_replies([parent], {"1000000001.000000": [new_reply]})
 
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {"C01:1000000001.000000": "hash"})
     monkeypatch.setattr(
-        slack_ingestion, "existing_metadata",
-        lambda *a, **k: {"C01:1000000001.000000": {"latest_reply_ts": "1000000002.000000"}},
+        slack_ingestion, "existing_key_state",
+        lambda *a: _key_state(
+            {"C01:1000000001.000000": "hash"},
+            {"C01:1000000001.000000": {"latest_reply_ts": "1000000002.000000"}},
+        ),
     )
     monkeypatch.setattr(slack_ingestion, "embed_documents", lambda texts: [[0.1] * 1024 for _ in texts])
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", upserted.extend)
@@ -472,7 +463,7 @@ def test_backfill_continues_after_embedding_failure_for_one_message(monkeypatch)
             raise RuntimeError("this message is bad")
         return [[0.1] * 1024]
 
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion, "embed_documents", flaky_embed)
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", upserted.extend)
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
@@ -492,7 +483,7 @@ def test_backfill_reports_failed_count(monkeypatch):
     def always_fails(texts):
         raise RuntimeError("embedding service down")
 
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion, "embed_documents", always_fails)
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", lambda rows: None)
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
@@ -512,8 +503,8 @@ def test_reconcile_detects_edited_message_and_reembeds(monkeypatch):
     upserted = []
     messages = [_raw(text="Edited content", ts="1000000001.000000")]
     monkeypatch.setattr(
-        slack_ingestion, "existing_key_hashes",
-        lambda *a: {"C01:1000000001.000000": "stale-hash-that-does-not-match"},
+        slack_ingestion, "existing_key_state",
+        lambda *a: _key_state({"C01:1000000001.000000": "stale-hash-that-does-not-match"}),
     )
     monkeypatch.setattr(slack_ingestion, "embed_documents", lambda texts: [[0.1] * 1024 for _ in texts])
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", upserted.extend)
@@ -533,8 +524,8 @@ def test_reconcile_leaves_unchanged_messages_alone(monkeypatch):
     messages = [_raw(text="Same as before", ts="1000000001.000000")]
     unchanged_hash = slack_ingestion._content_hash("Same as before")
     monkeypatch.setattr(
-        slack_ingestion, "existing_key_hashes",
-        lambda *a: {"C01:1000000001.000000": unchanged_hash},
+        slack_ingestion, "existing_key_state",
+        lambda *a: _key_state({"C01:1000000001.000000": unchanged_hash}),
     )
     monkeypatch.setattr(slack_ingestion, "embed_documents", lambda texts: [[0.1] * 1024 for _ in texts])
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", upserted.extend)
@@ -554,13 +545,12 @@ def test_reconcile_deletes_messages_removed_from_slack(monkeypatch):
     # Only one of the two previously-stored messages still exists in Slack.
     messages = [_raw(text="Still here", ts="1000000001.000000")]
     monkeypatch.setattr(
-        slack_ingestion, "existing_key_hashes",
-        lambda *a: {
+        slack_ingestion, "existing_key_state",
+        lambda *a: _key_state({
             "C01:1000000001.000000": slack_ingestion._content_hash("Still here"),
             "C01:1000000002.000000": "some-hash",
-        },
+        }),
     )
-    monkeypatch.setattr(slack_ingestion, "existing_metadata", lambda *a, **k: {})
     monkeypatch.setattr(slack_ingestion, "embed_documents", lambda texts: [[0.1] * 1024 for _ in texts])
     monkeypatch.setattr(slack_ingestion, "upsert_chunks", lambda rows: None)
     monkeypatch.setattr(
@@ -588,7 +578,7 @@ def test_reconcile_full_walk_ignores_resume_bound(monkeypatch):
             captured_kwargs.append(kwargs)
             return {"messages": [], "response_metadata": {}}
 
-    monkeypatch.setattr(slack_ingestion, "existing_key_hashes", lambda *a: {})
+    monkeypatch.setattr(slack_ingestion, "existing_key_state", lambda *a: {})
     monkeypatch.setattr(slack_ingestion, "delete_missing", lambda *a, **k: 0)
     monkeypatch.setattr(slack_ingestion.time, "sleep", lambda s: None)
 
@@ -606,6 +596,73 @@ def test_reconcile_full_walk_ignores_resume_bound(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Slice 6 — run_channel_backfill (shared orchestration)
+# ---------------------------------------------------------------------------
+
+def test_run_channel_backfill_isolates_one_channel_failure(monkeypatch, capsys):
+    """Regression test: PR #48 review found one channel's exception aborted
+    every channel after it in the same run."""
+    calls = []
+
+    def fake_backfill_channel(slack_client, supabase_client, workspace_id, channel, full_walk=False):
+        calls.append(channel["channel_id"])
+        if channel["channel_id"] == "C_BAD":
+            raise RuntimeError("boom")
+        return slack_ingestion.BackfillResult(ingested=1, failed=0, errors=[], deleted=0)
+
+    monkeypatch.setattr(slack_ingestion, "backfill_channel", fake_backfill_channel)
+    monkeypatch.setattr(
+        slack_ingestion, "list_monitored_channels",
+        lambda sb: [_channel("C_BAD", "bad-channel"), _channel("C_GOOD", "good-channel")],
+    )
+
+    slack_ingestion.run_channel_backfill(object(), object(), "T123")
+
+    # Both channels were attempted despite the first one raising.
+    assert calls == ["C_BAD", "C_GOOD"]
+    assert "unexpected error" in capsys.readouterr().out
+
+
+def test_run_channel_backfill_decides_full_walk_per_channel(monkeypatch):
+    seen_full_walk = {}
+
+    def fake_backfill_channel(slack_client, supabase_client, workspace_id, channel, full_walk=False):
+        seen_full_walk[channel["channel_id"]] = full_walk
+        return slack_ingestion.BackfillResult(ingested=0, failed=0, errors=[], deleted=0)
+
+    monkeypatch.setattr(slack_ingestion, "backfill_channel", fake_backfill_channel)
+    monkeypatch.setattr(
+        slack_ingestion, "list_monitored_channels",
+        lambda sb: [
+            _channel("C_DONE", "done", initial_backfill_complete=True),
+            _channel("C_NOT_DONE", "not-done", initial_backfill_complete=False),
+        ],
+    )
+
+    slack_ingestion.run_channel_backfill(object(), object(), "T123")
+
+    assert seen_full_walk == {"C_DONE": True, "C_NOT_DONE": False}
+
+
+def test_run_channel_backfill_force_full_walk_overrides_per_channel_state(monkeypatch):
+    seen_full_walk = {}
+
+    def fake_backfill_channel(slack_client, supabase_client, workspace_id, channel, full_walk=False):
+        seen_full_walk[channel["channel_id"]] = full_walk
+        return slack_ingestion.BackfillResult(ingested=0, failed=0, errors=[], deleted=0)
+
+    monkeypatch.setattr(slack_ingestion, "backfill_channel", fake_backfill_channel)
+    monkeypatch.setattr(
+        slack_ingestion, "list_monitored_channels",
+        lambda sb: [_channel("C_NOT_DONE", "not-done", initial_backfill_complete=False)],
+    )
+
+    slack_ingestion.run_channel_backfill(object(), object(), "T123", force_full_walk=True)
+
+    assert seen_full_walk == {"C_NOT_DONE": True}
+
+
+# ---------------------------------------------------------------------------
 # Slice 4 — real-time handler (app.py)
 # ---------------------------------------------------------------------------
 
@@ -618,10 +675,8 @@ def _load_app(monkeypatch, monitored_ids=("C01",)):
 
     # Stub out Supabase + settings so the module loads without credentials
     monkeypatch.setattr("common.config.get_slack_settings", lambda: SimpleNamespace(
-        required_supabase_url="http://fake",
-        required_supabase_service_key="fake",
-        required_workspace_id="T123",
-        slack_backfill_limit=200,
+        supabase_url="http://fake",
+        supabase_service_role_key="fake",
     ))
 
     module_path = Path(__file__).resolve().parents[1] / "student-org-agent" / "app.py"
@@ -648,22 +703,24 @@ def test_real_time_new_message_ingested(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    # Reset cached monitored ids so the stub takes effect
-    bot._monitored_channel_ids = {"C01"}
+    # Reset cached monitored channels so the stub takes effect
+    bot._monitored_channels = {"C01": "general"}
 
-    event = {"channel": "C01", "channel_name": "general", "user": "U01",
-              "text": "Hello", "ts": "1234567890.000100"}
+    # Real Slack message events never include channel_name — only the ID.
+    event = {"channel": "C01", "user": "U01", "text": "Hello", "ts": "1234567890.000100"}
     bot.handle_message(event, logger=SimpleNamespace(error=print))
 
     assert len(ingested) == 1
     assert ingested[0]["text"] == "Hello"
+    # channel_name must come from the monitored_channels cache, not the event
+    assert ingested[0]["channel_name"] == "general"
 
 
 def test_real_time_unmonitored_channel_skipped(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channel_ids = {"C01"}
+    bot._monitored_channels = {"C01": "general"}
 
     event = {"channel": "C99", "user": "U01", "text": "Should not ingest",
               "ts": "1234567890.000100"}
@@ -676,11 +733,11 @@ def test_real_time_message_changed_reupserts(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channel_ids = {"C01"}
+    bot._monitored_channels = {"C01": "general"}
 
+    # Real message_changed events never include channel_name either.
     event = {
         "channel": "C01",
-        "channel_name": "general",
         "subtype": "message_changed",
         "message": {"user": "U01", "text": "Edited text", "ts": "1234567890.000100"},
     }
@@ -688,6 +745,7 @@ def test_real_time_message_changed_reupserts(monkeypatch):
 
     assert len(ingested) == 1
     assert ingested[0]["text"] == "Edited text"
+    assert ingested[0]["channel_name"] == "general"
 
 
 def test_real_time_message_deleted_removes(monkeypatch):
@@ -695,7 +753,7 @@ def test_real_time_message_deleted_removes(monkeypatch):
     monkeypatch.setattr(slack_ingestion, "delete_slack_message",
                         lambda ws, ch, ts: deleted.append((ch, ts)))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channel_ids = {"C01"}
+    bot._monitored_channels = {"C01": "general"}
 
     event = {"channel": "C01", "subtype": "message_deleted", "deleted_ts": "1234567890.000100"}
     bot.handle_message(event, logger=SimpleNamespace(error=print))
@@ -707,10 +765,26 @@ def test_real_time_bot_message_not_ingested(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channel_ids = {"C01"}
+    bot._monitored_channels = {"C01": "general"}
 
     event = {"channel": "C01", "bot_id": "B01", "text": "I am a bot",
               "ts": "1234567890.000100"}
     bot.handle_message(event, logger=SimpleNamespace(error=print))
 
     assert ingested == []
+
+
+def test_real_time_channel_name_never_falls_back_to_channel_id(monkeypatch):
+    """Regression test: PR #48 review found channel_name silently became the
+    raw channel ID because Slack message events never include channel_name.
+    The config cache's name must be used even when it differs from the ID."""
+    ingested = []
+    monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
+    bot = _load_app(monkeypatch, monitored_ids=["C01"])
+    bot._monitored_channels = {"C01": "club-announcements"}
+
+    event = {"channel": "C01", "user": "U01", "text": "Hello", "ts": "1234567890.000100"}
+    bot.handle_message(event, logger=SimpleNamespace(error=print))
+
+    assert ingested[0]["channel_name"] == "club-announcements"
+    assert ingested[0]["channel_name"] != "C01"

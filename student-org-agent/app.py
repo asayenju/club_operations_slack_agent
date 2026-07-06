@@ -9,11 +9,11 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from common.config import get_ingestion_settings, get_slack_settings
 from common.slack_ingestion import (
-    backfill_channel,
     delete_slack_message,
     ingest_slack_message,
     list_monitored_channels,
     normalize_message,
+    run_channel_backfill,
 )
 from decisions.embedding import EmbeddingError, VoyageEmbeddingClient
 from decisions.repository import SupabaseDocumentsRepository
@@ -51,13 +51,7 @@ def _run_backfill() -> None:
     try:
         supabase = _get_supabase()
         workspace_id = configured_workspace_id()
-        channels = list_monitored_channels(supabase)
-        for ch in channels:
-            result = backfill_channel(app.client, supabase, workspace_id, ch)
-            print(
-                f"[backfill] #{ch['channel_name']}: {result['ingested']} ingested, "
-                f"{result['failed']} failed"
-            )
+        run_channel_backfill(app.client, supabase, workspace_id, log_prefix="backfill")
     except Exception as exc:
         print(f"[backfill] failed: {exc}")
 
@@ -367,30 +361,38 @@ def handle_ask_command(ack, command, respond):
 # Slice 4 — Real-time message ingestion
 # ---------------------------------------------------------------------------
 
-_monitored_channel_ids: set[str] | None = None
+_monitored_channels: dict[str, str] | None = None
 _monitored_lock = threading.Lock()
 
 
-def _get_monitored_ids() -> set[str]:
-    global _monitored_channel_ids
+def _get_monitored_channels() -> dict[str, str]:
+    """Return {channel_id: channel_name} from the monitored_channels config.
+
+    Slack's message events never include a channel_name field (on either
+    message_changed or a plain new message), so this config cache — not the
+    event payload — is the source of truth for the human-readable name.
+    """
+    global _monitored_channels
     with _monitored_lock:
-        if _monitored_channel_ids is None:
+        if _monitored_channels is None:
             try:
                 supabase = _get_supabase()
                 rows = list_monitored_channels(supabase)
-                _monitored_channel_ids = {r["channel_id"] for r in rows}
+                _monitored_channels = {r["channel_id"]: r["channel_name"] for r in rows}
             except Exception as exc:
                 print(f"[monitored_channels] failed to load: {exc}")
-                return set()
-    return _monitored_channel_ids
+                return {}
+    return _monitored_channels
 
 
 @app.event("message")
 def handle_message(event, logger):
     channel_id = event.get("channel", "")
-    if channel_id not in _get_monitored_ids():
+    monitored = _get_monitored_channels()
+    if channel_id not in monitored:
         return
 
+    channel_name = monitored[channel_id]
     subtype = event.get("subtype")
     workspace_id = configured_workspace_id()
 
@@ -402,13 +404,11 @@ def handle_message(event, logger):
 
         elif subtype == "message_changed":
             raw = event.get("message", {})
-            channel_name = event.get("channel_name", channel_id)
             msg = normalize_message(raw, channel_id, channel_name)
             if msg:
                 ingest_slack_message(workspace_id, msg)
 
         elif subtype is None:
-            channel_name = event.get("channel_name", channel_id)
             msg = normalize_message(event, channel_id, channel_name)
             if msg:
                 ingest_slack_message(workspace_id, msg)

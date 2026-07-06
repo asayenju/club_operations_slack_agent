@@ -7,10 +7,9 @@ from typing import Any, Iterator, TypedDict
 from slack_sdk.errors import SlackApiError
 
 from ingestion_api.documents_repo import (
+    delete_chunk_key,
     delete_missing,
-    existing_key_hashes,
-    existing_keys,
-    existing_metadata,
+    existing_key_state,
     upsert_chunks,
 )
 from ingestion_api.embeddings import embed_documents, to_pgvector
@@ -125,8 +124,7 @@ def ingest_slack_message(workspace_id: str, msg: SlackMessage) -> None:
 def delete_slack_message(workspace_id: str, channel_id: str, ts: str) -> None:
     """Remove a single Slack message chunk from the vector store."""
     chunk_key = f"{channel_id}:{ts}"
-    current_keys = existing_keys(workspace_id, SLACK_SOURCE, channel_id)
-    delete_missing(workspace_id, SLACK_SOURCE, channel_id, current_keys - {chunk_key})
+    delete_chunk_key(workspace_id, SLACK_SOURCE, channel_id, chunk_key)
 
 
 # ---------------------------------------------------------------------------
@@ -303,9 +301,10 @@ def backfill_channel(
     limit = None if full_walk else channel.get("backfill_limit", 200)
     oldest = None if full_walk else channel.get("oldest_ts_backfilled")
 
-    existing_hashes = existing_key_hashes(workspace_id, SLACK_SOURCE, channel_id)
-    stored_meta = existing_metadata(workspace_id, SLACK_SOURCE, channel_id)
-    seen = set(existing_hashes.keys())
+    key_state = existing_key_state(workspace_id, SLACK_SOURCE, channel_id)
+    existing_hashes = {key: state["content_hash"] for key, state in key_state.items()}
+    stored_meta = {key: state["metadata"] for key, state in key_state.items()}
+    seen = set(key_state.keys())
 
     raw_top_level: list[dict[str, Any]] = []
     min_ts_seen: str | None = None
@@ -431,3 +430,41 @@ def backfill_channel(
     if rows:
         upsert_chunks(rows)
     return BackfillResult(ingested=len(rows), failed=len(embed_errors), errors=embed_errors, deleted=deleted_count)
+
+
+# ---------------------------------------------------------------------------
+# Slice 6 — Shared orchestration (single implementation for all call sites)
+# ---------------------------------------------------------------------------
+
+def run_channel_backfill(
+    slack_client: Any,
+    supabase_client: Any,
+    workspace_id: str,
+    *,
+    force_full_walk: bool = False,
+    log_prefix: str = "backfill",
+) -> None:
+    """Run backfill/reconciliation across all monitored channels.
+
+    Used by the on-demand endpoint, the scheduled daily reconcile job, and
+    the Bolt app's startup thread alike, so there is exactly one place that
+    decides "does this channel get a bounded backfill or a full reconcile"
+    and exactly one place that isolates one channel's failure from the rest.
+
+    `force_full_walk=True` always does a full reconcile (the scheduled daily
+    job). Otherwise each channel's mode is decided by its own
+    `initial_backfill_complete` flag — channels still catching up get a
+    bounded backfill, channels already caught up get reconciled.
+    """
+    channels = list_monitored_channels(supabase_client)
+    for ch in channels:
+        channel_label = ch.get("channel_name") or ch.get("channel_id", "?")
+        full_walk = force_full_walk or bool(ch.get("initial_backfill_complete"))
+        try:
+            result = backfill_channel(slack_client, supabase_client, workspace_id, ch, full_walk=full_walk)
+            print(
+                f"[{log_prefix}] #{channel_label}: {result['ingested']} ingested, "
+                f"{result['failed']} failed, {result['deleted']} deleted"
+            )
+        except Exception as exc:
+            print(f"[{log_prefix}] #{channel_label}: unexpected error, skipping: {exc}")

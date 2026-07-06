@@ -1,6 +1,10 @@
 from fastapi.testclient import TestClient
 from types import SimpleNamespace
 
+import pytest
+
+from common import slack_ingestion
+from common.slack_scopes import SlackScopeError
 from ingestion_api import main
 from ingestion_api.drive_sync import FolderSyncResult
 
@@ -144,7 +148,9 @@ def test_ingestion_api_accepts_configured_api_key(monkeypatch):
 
 
 def test_slack_backfill_endpoint_accepts_request(monkeypatch):
+    monkeypatch.setattr(main, "verify_slack_scopes", lambda *a, **k: None)
     monkeypatch.setattr(main, "list_monitored_channels", lambda supabase: [])
+    monkeypatch.setattr(slack_ingestion, "list_monitored_channels", lambda supabase: [])
     client = build_client(monkeypatch)
 
     with client:
@@ -155,9 +161,24 @@ def test_slack_backfill_endpoint_accepts_request(monkeypatch):
 
 
 def test_lifespan_registers_daily_reconcile_job(monkeypatch):
+    monkeypatch.setattr(main, "verify_slack_scopes", lambda *a, **k: None)
+    monkeypatch.setattr(main, "list_monitored_channels", lambda supabase: [])
     client = build_client(monkeypatch)
 
     with client:
         jobs = main.scheduler.get_jobs()
 
     assert any(job.id == "slack_reconcile" for job in jobs)
+
+
+def test_lifespan_fails_startup_when_slack_scopes_invalid(monkeypatch):
+    def raise_scope_error(*args, **kwargs):
+        raise SlackScopeError("missing a required scope")
+
+    monkeypatch.setattr(main, "verify_slack_scopes", raise_scope_error)
+    monkeypatch.setattr(main, "list_monitored_channels", lambda supabase: [])
+    client = build_client(monkeypatch)
+
+    with pytest.raises(SlackScopeError):
+        with client:
+            pass

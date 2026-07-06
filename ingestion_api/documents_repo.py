@@ -28,32 +28,29 @@ def existing_keys(workspace_id: str, source: str, source_id: str) -> set[str]:
     return {row["chunk_key"] for row in response.data or []}
 
 
-def existing_key_hashes(workspace_id: str, source: str, source_id: str) -> dict[str, str]:
-    """Return {chunk_key: content_hash} for a source, used to detect edits."""
+def existing_key_state(workspace_id: str, source: str, source_id: str) -> dict[str, dict[str, Any]]:
+    """Return {chunk_key: {"content_hash": ..., "metadata": ...}} for a source.
+
+    Used to detect both content edits (content_hash) and thread activity
+    (metadata.latest_reply_ts) in a single query instead of two identical
+    scans over the same rows.
+    """
     response = (
         get_supabase_client()
         .table("documents")
-        .select("chunk_key,content_hash")
+        .select("chunk_key,content_hash,metadata")
         .eq("workspace_id", workspace_id)
         .eq("source", source)
         .eq("source_id", source_id)
         .execute()
     )
-    return {row["chunk_key"]: row["content_hash"] for row in response.data or []}
-
-
-def existing_metadata(workspace_id: str, source: str, source_id: str) -> dict[str, dict[str, Any]]:
-    """Return {chunk_key: metadata} for a source, used to detect thread activity."""
-    response = (
-        get_supabase_client()
-        .table("documents")
-        .select("chunk_key,metadata")
-        .eq("workspace_id", workspace_id)
-        .eq("source", source)
-        .eq("source_id", source_id)
-        .execute()
-    )
-    return {row["chunk_key"]: (row.get("metadata") or {}) for row in response.data or []}
+    return {
+        row["chunk_key"]: {
+            "content_hash": row["content_hash"],
+            "metadata": row.get("metadata") or {},
+        }
+        for row in response.data or []
+    }
 
 
 def upsert_chunks(rows: list[dict[str, Any]]) -> None:
@@ -97,6 +94,21 @@ def delete_source(workspace_id: str, source: str, source_id: str) -> int:
         .execute()
     )
     return len(keys)
+
+
+def delete_chunk_key(workspace_id: str, source: str, source_id: str, chunk_key: str) -> int:
+    """Delete a single row by its exact chunk_key — O(1), no full-key scan."""
+    response = (
+        get_supabase_client()
+        .table("documents")
+        .delete()
+        .eq("workspace_id", workspace_id)
+        .eq("source", source)
+        .eq("source_id", source_id)
+        .eq("chunk_key", chunk_key)
+        .execute()
+    )
+    return len(response.data or [])
 
 
 def delete_missing(

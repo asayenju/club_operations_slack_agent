@@ -10,7 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings
-from common.slack_ingestion import backfill_channel, list_monitored_channels
+from common.slack_ingestion import list_monitored_channels, run_channel_backfill
+from common.slack_scopes import verify_slack_scopes
 from ingestion_api.drive_sync import DriveSyncService
 from ingestion_api.ingest_docs import IngestionResult, ingest_doc
 from ingestion_api.ingest_sheets import ingest_sheet
@@ -32,35 +33,31 @@ def _get_slack_client() -> WebClient:
 def _run_slack_backfill() -> None:
     """On-demand trigger: bounded initial backfill for channels still catching up,
     full reconciliation for channels that have already completed it."""
-    supabase = _get_supabase()
-    slack = _get_slack_client()
-    workspace_id = settings.required_workspace_id
-    channels = list_monitored_channels(supabase)
-    for ch in channels:
-        full_walk = bool(ch.get("initial_backfill_complete"))
-        result = backfill_channel(slack, supabase, workspace_id, ch, full_walk=full_walk)
-        print(
-            f"[backfill] #{ch['channel_name']}: {result['ingested']} ingested, "
-            f"{result['failed']} failed, {result['deleted']} deleted"
-        )
+    run_channel_backfill(
+        _get_slack_client(),
+        _get_supabase(),
+        settings.required_workspace_id,
+        log_prefix="backfill",
+    )
 
 
 def _run_slack_reconcile() -> None:
     """Scheduled daily reconciliation: always a full walk (edits + deletions)."""
-    supabase = _get_supabase()
-    slack = _get_slack_client()
-    workspace_id = settings.required_workspace_id
-    channels = list_monitored_channels(supabase)
-    for ch in channels:
-        result = backfill_channel(slack, supabase, workspace_id, ch, full_walk=True)
-        print(
-            f"[reconcile] #{ch['channel_name']}: {result['ingested']} ingested, "
-            f"{result['failed']} failed, {result['deleted']} deleted"
-        )
+    run_channel_backfill(
+        _get_slack_client(),
+        _get_supabase(),
+        settings.required_workspace_id,
+        force_full_walk=True,
+        log_prefix="reconcile",
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    channels = list_monitored_channels(_get_supabase())
+    sample_channel_id = channels[0]["channel_id"] if channels else None
+    verify_slack_scopes(_get_slack_client(), sample_channel_id=sample_channel_id)
+
     poll_interval = settings.drive_poll_interval_seconds
     task = None
     if poll_interval > 0:
