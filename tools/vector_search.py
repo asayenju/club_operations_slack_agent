@@ -125,9 +125,9 @@ def _build_citation(source: str, row: dict[str, Any], meta: dict[str, Any]) -> C
             label = "Google Doc"
     elif source == "gsheet":
         title = meta.get("title", "")
-        sheet_name = meta.get("sheet_name", "")
-        if title and sheet_name:
-            label = f"{title} › {sheet_name}"
+        tab_name = meta.get("tab_name") or meta.get("sheet_name") or ""
+        if title and tab_name:
+            label = f"{title} › {tab_name}"
         elif title:
             label = title
         else:

@@ -238,8 +238,8 @@ python -m tools.google_auth_bootstrap
 This writes the reusable OAuth token to `secrets/club_token.json`.
 
 The `documents` table must include `workspace_id`, `source`, `source_id`,
-`chunk_key`, `content`, `content_hash`, `metadata`, `embedding`, and
-`updated_at`, with a unique constraint on:
+`chunk_key`, `content`, `content_hash`, `metadata`, `embedding`, `created_at`,
+and `updated_at`, with a unique constraint on:
 
 ```text
 (workspace_id, source, source_id, chunk_key)
@@ -326,6 +326,21 @@ Pending proposals default to expiring 72 hours after creation when callers do
 not provide an explicit expiry timestamp. Run `expire_due(workspace_id)`
 regularly from the reconciliation scheduler or maintenance job to mark overdue
 pending proposals expired before processing late approvals.
+
+Proposal confirmation is controlled by Slack user and reaction configuration:
+
+```text
+RECONCILIATION_APPROVAL_USER_IDS=U123456789,U987654321
+RECONCILIATION_APPROVAL_REACTION=white_check_mark
+```
+
+Only configured committee lead Slack user IDs can confirm pending proposals.
+The approval reaction defaults to Slack's `white_check_mark` name for the
+checkmark emoji. Wrong reactions, unconfigured users, missing approval user
+configuration, and proposals that are expired, rejected, superseded, or already
+confirmed are ignored. The Slack app manifest subscribes to `reaction_added` and
+requires `reactions:read`; reinstall or update the app after changing the
+manifest.
 
 ## Ingestion setup
 

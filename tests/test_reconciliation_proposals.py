@@ -9,6 +9,12 @@ from reconciliation.models import (
     ReconciliationProposal,
     format_datetime,
 )
+from reconciliation.approval import (
+    ReconciliationApprovalNotConfigured,
+    ReconciliationApprovalPolicy,
+    ReconciliationApprovalRejected,
+    validate_reconciliation_approval,
+)
 from reconciliation.repository import (
     PAGE_SIZE,
     ProposalTransitionConflict,
@@ -229,6 +235,133 @@ class RejectBeforeExpireRepository(InMemoryProposalRepository):
 def build_service():
     repository = InMemoryProposalRepository()
     return ReconciliationProposalService(repository), repository
+
+
+def build_policy(*, users="UAPPROVER", reaction="white_check_mark"):
+    return ReconciliationApprovalPolicy(
+        lead_user_ids=frozenset(users.split(",") if users else []),
+        approval_reaction=reaction,
+    )
+
+
+def build_proposal(
+    *,
+    status=ProposalStatus.PENDING,
+    expires_at=None,
+    confirmed_at=None,
+    confirmed_by_user_id=None,
+):
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+    return ReconciliationProposal(
+        id=PROPOSAL_ID,
+        workspace_id="T123",
+        status=status,
+        source_evidence=[],
+        proposed_action={"kind": "notify"},
+        slack_channel_id="C123",
+        slack_message_ts="1710000000.000100",
+        created_at=created_at,
+        expires_at=expires_at or created_at + timedelta(hours=1),
+        confirmed_at=confirmed_at,
+        confirmed_by_user_id=confirmed_by_user_id,
+    )
+
+
+def test_approval_policy_reads_configured_users_and_reaction():
+    settings = SimpleNamespace(
+        reconciliation_approval_user_ids=" UAPPROVER, UBACKUP ,, ",
+        reconciliation_approval_reaction=":heavy_check_mark:",
+    )
+
+    policy = ReconciliationApprovalPolicy.from_settings(settings)
+
+    assert policy.lead_user_ids == frozenset({"UAPPROVER", "UBACKUP"})
+    assert policy.approval_reaction == "heavy_check_mark"
+
+
+def test_approval_policy_defaults_to_checkmark_reaction():
+    settings = SimpleNamespace(reconciliation_approval_user_ids="UAPPROVER")
+
+    policy = ReconciliationApprovalPolicy.from_settings(settings)
+
+    assert policy.approval_reaction == "white_check_mark"
+
+
+def test_approval_validation_accepts_authorized_user_and_reaction():
+    now = datetime(2026, 7, 1, 10, 30, tzinfo=UTC)
+
+    validate_reconciliation_approval(
+        proposal=build_proposal(),
+        policy=build_policy(),
+        approving_user_id="UAPPROVER",
+        reaction=":white_check_mark:",
+        now=now,
+    )
+
+
+def test_approval_validation_rejects_missing_user_config():
+    with pytest.raises(ReconciliationApprovalNotConfigured):
+        validate_reconciliation_approval(
+            proposal=build_proposal(),
+            policy=build_policy(users=""),
+            approving_user_id="UAPPROVER",
+            reaction="white_check_mark",
+            now=datetime(2026, 7, 1, 10, 30, tzinfo=UTC),
+        )
+
+
+def test_approval_validation_rejects_unconfigured_user():
+    with pytest.raises(ReconciliationApprovalRejected):
+        validate_reconciliation_approval(
+            proposal=build_proposal(),
+            policy=build_policy(),
+            approving_user_id="UOTHER",
+            reaction="white_check_mark",
+            now=datetime(2026, 7, 1, 10, 30, tzinfo=UTC),
+        )
+
+
+def test_approval_validation_rejects_wrong_reaction():
+    with pytest.raises(ReconciliationApprovalRejected):
+        validate_reconciliation_approval(
+            proposal=build_proposal(),
+            policy=build_policy(),
+            approving_user_id="UAPPROVER",
+            reaction="eyes",
+            now=datetime(2026, 7, 1, 10, 30, tzinfo=UTC),
+        )
+
+
+def test_approval_validation_rejects_expired_proposal():
+    with pytest.raises(ReconciliationApprovalRejected):
+        validate_reconciliation_approval(
+            proposal=build_proposal(
+                expires_at=datetime(2026, 7, 1, 10, 5, tzinfo=UTC),
+            ),
+            policy=build_policy(),
+            approving_user_id="UAPPROVER",
+            reaction="white_check_mark",
+            now=datetime(2026, 7, 1, 10, 30, tzinfo=UTC),
+        )
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        ProposalStatus.CONFIRMED,
+        ProposalStatus.REJECTED,
+        ProposalStatus.EXPIRED,
+    ],
+)
+def test_approval_validation_rejects_non_pending_proposals(status):
+    with pytest.raises(ReconciliationApprovalRejected):
+        validate_reconciliation_approval(
+            proposal=build_proposal(status=status),
+            policy=build_policy(),
+            approving_user_id="UAPPROVER",
+            reaction="white_check_mark",
+            now=datetime(2026, 7, 1, 10, 30, tzinfo=UTC),
+        )
 
 
 def test_proposal_round_trips_to_storage_row():

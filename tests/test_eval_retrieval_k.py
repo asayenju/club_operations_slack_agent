@@ -268,15 +268,14 @@ def _make_match_stub(knowledge_dataset, no_evidence_similarity: float):
     return fake_match
 
 
-def _latest_eval_json(tool: str) -> Path:
+def _latest_eval_json(tool: str, output_dir: Path) -> Path:
     """Return the most recently written eval JSON for a given tool name."""
-    output_dir = Path(__file__).parent.parent / "eval_results"
     files = sorted(output_dir.glob(f"eval_{tool}_*.json"), key=lambda p: p.stat().st_mtime)
     assert files, f"No eval_{tool}_*.json found in {output_dir}"
     return files[-1]
 
 
-def test_run_eval_knowledge_calls_match_with_gdoc_gsheet_sources(monkeypatch, knowledge_dataset):
+def test_run_eval_knowledge_calls_match_with_gdoc_gsheet_sources(monkeypatch, knowledge_dataset, tmp_path):
     captured_sources = []
     monkeypatch.setattr(
         "scripts.eval_retrieval_k.get_ingestion_settings", lambda: _FakeSettings()
@@ -291,7 +290,7 @@ def test_run_eval_knowledge_calls_match_with_gdoc_gsheet_sources(monkeypatch, kn
         return []
 
     monkeypatch.setattr("scripts.eval_retrieval_k.match_documents", capturing_match)
-    run_eval("knowledge")
+    run_eval("knowledge", output_dir=tmp_path)
 
     for sources in captured_sources:
         assert set(sources) == {"gdoc", "gsheet"}, (
@@ -300,7 +299,7 @@ def test_run_eval_knowledge_calls_match_with_gdoc_gsheet_sources(monkeypatch, kn
     assert "slack_decide" not in {s for call in captured_sources for s in call}
 
 
-def test_run_eval_knowledge_no_evidence_pass_written_to_json(monkeypatch, knowledge_dataset):
+def test_run_eval_knowledge_no_evidence_pass_written_to_json(monkeypatch, knowledge_dataset, tmp_path):
     monkeypatch.setattr(
         "scripts.eval_retrieval_k.get_ingestion_settings", lambda: _FakeSettings()
     )
@@ -313,9 +312,9 @@ def test_run_eval_knowledge_no_evidence_pass_written_to_json(monkeypatch, knowle
         _make_match_stub(knowledge_dataset, no_evidence_similarity=0.40),
     )
 
-    run_eval("knowledge")
+    run_eval("knowledge", output_dir=tmp_path)
 
-    payload = json.loads(_latest_eval_json("knowledge").read_text())
+    payload = json.loads(_latest_eval_json("knowledge", tmp_path).read_text())
     assert payload["tool"] == "knowledge"
     assert payload["sources"] == ["gdoc", "gsheet"]
     assert len(payload["no_evidence_results"]) == 1
@@ -323,7 +322,7 @@ def test_run_eval_knowledge_no_evidence_pass_written_to_json(monkeypatch, knowle
     assert payload["no_evidence_results"][0]["best_similarity"] == pytest.approx(0.40, abs=1e-3)
 
 
-def test_run_eval_knowledge_no_evidence_fail_written_to_json(monkeypatch, knowledge_dataset):
+def test_run_eval_knowledge_no_evidence_fail_written_to_json(monkeypatch, knowledge_dataset, tmp_path):
     monkeypatch.setattr(
         "scripts.eval_retrieval_k.get_ingestion_settings", lambda: _FakeSettings()
     )
@@ -336,9 +335,9 @@ def test_run_eval_knowledge_no_evidence_fail_written_to_json(monkeypatch, knowle
         _make_match_stub(knowledge_dataset, no_evidence_similarity=0.85),
     )
 
-    run_eval("knowledge")
+    run_eval("knowledge", output_dir=tmp_path)
 
-    payload = json.loads(_latest_eval_json("knowledge").read_text())
+    payload = json.loads(_latest_eval_json("knowledge", tmp_path).read_text())
     assert payload["no_evidence_results"][0]["passed"] is False
 
 

@@ -1,4 +1,4 @@
-from common.config import SlackSettings
+from common.config import IngestionSettings, SlackSettings
 
 
 def test_slack_settings_accepts_supabase_service_key_alias(monkeypatch):
@@ -13,3 +13,12 @@ def test_slack_settings_accepts_supabase_service_key_alias(monkeypatch):
     assert settings.supabase_service_role_key == "service-key"
     assert settings.voyage_embed_model == "voyage-3.5-lite"
     assert settings.voyage_embed_dimension == 1024
+
+
+def test_ingestion_settings_accepts_supabase_service_role_key_alias(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key")
+
+    settings = IngestionSettings(_env_file=None)
+
+    assert settings.supabase_service_key == "service-role-key"
