@@ -492,6 +492,37 @@ def test_create_pending_proposal_normalizes_naive_datetimes_to_utc():
     assert proposal.expires_at == datetime(2026, 7, 4, 10, tzinfo=UTC)
 
 
+def test_create_pending_proposal_defaults_expiry_to_72_hours():
+    service, _ = build_service()
+    created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
+
+    proposal = service.create_pending(
+        workspace_id="T123",
+        source_evidence=[],
+        proposed_action={"kind": "notify"},
+        created_at=created_at,
+        proposal_id=PROPOSAL_ID,
+    )
+
+    assert proposal.expires_at == created_at + timedelta(hours=72)
+
+
+def test_create_pending_proposal_defaults_expiry_after_normalized_creation_time():
+    service, _ = build_service()
+    created_at = datetime(2026, 7, 1, 10)
+
+    proposal = service.create_pending(
+        workspace_id="T123",
+        source_evidence=[],
+        proposed_action={"kind": "notify"},
+        created_at=created_at,
+        proposal_id=PROPOSAL_ID,
+    )
+
+    assert proposal.created_at == datetime(2026, 7, 1, 10, tzinfo=UTC)
+    assert proposal.expires_at == datetime(2026, 7, 4, 10, tzinfo=UTC)
+
+
 def test_create_pending_proposal_rejects_past_expiry():
     service, _ = build_service()
     created_at = datetime(2026, 7, 1, 10, tzinfo=UTC)
@@ -606,6 +637,7 @@ def test_confirm_pending_proposal_records_approval_metadata():
     assert confirmed.confirmed_by_user_id == "UAPPROVER"
     assert confirmed.confirmed_at == confirmed_at
     assert confirmed.audit_log[-1]["event"] == "confirmed"
+    assert confirmed.audit_log[-1]["occurred_at"] == format_datetime(confirmed_at)
     assert confirmed.audit_log[-1]["approved_by_user_id"] == "UAPPROVER"
 
 
@@ -900,6 +932,10 @@ def test_expire_due_marks_only_due_pending_proposals():
     assert (
         repository.get_by_id("T123", DUE_PROPOSAL_ID).audit_log[-1]["event"]
         == "expired"
+    )
+    assert (
+        repository.get_by_id("T123", DUE_PROPOSAL_ID).audit_log[-1]["occurred_at"]
+        == format_datetime(now)
     )
 
 
