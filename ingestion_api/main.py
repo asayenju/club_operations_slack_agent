@@ -3,19 +3,61 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Any
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
+from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings
+from common.slack_ingestion import list_monitored_channels, run_channel_backfill
+from common.slack_scopes import verify_slack_scopes
 from ingestion_api.drive_sync import DriveSyncService
 from ingestion_api.ingest_docs import IngestionResult, ingest_doc
 from ingestion_api.ingest_sheets import ingest_sheet
 
 settings = get_ingestion_settings()
+scheduler = BackgroundScheduler()
+
+
+def _get_supabase():
+    from supabase import create_client
+    return create_client(settings.required_supabase_url, settings.required_supabase_service_key)
+
+
+def _get_slack_client() -> WebClient:
+    import os
+    return WebClient(token=os.environ.get("SLACK_BOT_TOKEN", ""))
+
+
+def _run_slack_backfill() -> None:
+    """On-demand trigger: bounded initial backfill for channels still catching up,
+    full reconciliation for channels that have already completed it."""
+    run_channel_backfill(
+        _get_slack_client(),
+        _get_supabase(),
+        settings.required_workspace_id,
+        log_prefix="backfill",
+    )
+
+
+def _run_slack_reconcile() -> None:
+    """Scheduled daily reconciliation: always a full walk (edits + deletions)."""
+    run_channel_backfill(
+        _get_slack_client(),
+        _get_supabase(),
+        settings.required_workspace_id,
+        force_full_walk=True,
+        log_prefix="reconcile",
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    channels = list_monitored_channels(_get_supabase())
+    sample_channel_id = channels[0]["channel_id"] if channels else None
+    verify_slack_scopes(_get_slack_client(), sample_channel_id=sample_channel_id)
+
     poll_interval = settings.drive_poll_interval_seconds
     task = None
     if poll_interval > 0:
@@ -27,7 +69,18 @@ async def lifespan(app: FastAPI):
                 except Exception as exc:
                     print(f"[poll] drive sync failed: {exc}")
         task = asyncio.create_task(_poll_loop())
+
+    scheduler.add_job(
+        _run_slack_reconcile,
+        CronTrigger(hour=settings.slack_reconcile_cron_hour, minute=0),
+        id="slack_reconcile",
+        replace_existing=True,
+    )
+    scheduler.start()
+
     yield
+
+    scheduler.shutdown(wait=False)
     if task:
         task.cancel()
         try:
@@ -165,3 +218,14 @@ async def ingest_spreadsheet_webhook(
     if payload and payload.get("sheet_id"):
         background_tasks.add_task(ingest_sheet, payload["sheet_id"])
     return {"status": "accepted", "source": "spreadsheets"}
+
+
+@app.post(
+    "/ingest/slack/backfill",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_api_key)],
+)
+async def slack_backfill_endpoint(background_tasks: BackgroundTasks) -> dict[str, str]:
+    """Manually trigger backfill/reconciliation of all monitored Slack channels."""
+    background_tasks.add_task(_run_slack_backfill)
+    return {"status": "accepted", "source": "slack_backfill"}

@@ -46,6 +46,8 @@ class IngestionSettings(BaseAppSettings):
     drive_poll_interval_seconds: int = 300
     ingestion_api_key: str | None = None
     drive_sync_admin_user_ids: str | None = None
+    slack_backfill_limit: int = 200
+    slack_reconcile_cron_hour: int = 6
 
     def require(self, value: T | None, environment_name: str) -> T:
         if value is None or (isinstance(value, str) and not value.strip()):
