@@ -1,3 +1,9 @@
+from reconciliation.candidates import (
+    ReconciliationCandidate,
+    SourceResult,
+    build_reconciliation_candidate,
+    build_reconciliation_candidates,
+)
 from reconciliation.models import ProposalStatus, ReconciliationProposal
 from reconciliation.repository import (
     ProposalStorageError,
@@ -16,7 +22,11 @@ __all__ = [
     "ProposalStorageError",
     "ProposalStatus",
     "ProposalTransitionConflict",
+    "ReconciliationCandidate",
     "ReconciliationProposal",
     "ReconciliationProposalService",
+    "SourceResult",
     "SupabaseReconciliationProposalRepository",
+    "build_reconciliation_candidate",
+    "build_reconciliation_candidates",
 ]
