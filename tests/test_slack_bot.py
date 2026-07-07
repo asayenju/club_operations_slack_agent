@@ -50,9 +50,10 @@ def build_reconciliation_proposal(*, status=ProposalStatus.PENDING, expired=Fals
 
 
 class FakeReconciliationService:
-    def __init__(self, proposal=None, error=None):
+    def __init__(self, proposal=None, error=None, confirm_error=None):
         self.proposal = proposal
         self.error = error
+        self.confirm_error = confirm_error
         self.lookups = []
         self.confirmations = []
 
@@ -64,6 +65,8 @@ class FakeReconciliationService:
 
     def confirm(self, **kwargs):
         self.confirmations.append(kwargs)
+        if self.confirm_error:
+            raise self.confirm_error
         return self.proposal
 
 
@@ -500,6 +503,38 @@ def test_reconciliation_reaction_uses_body_team_id_when_event_omits_team(
     assert service.lookups == [("T123", "C123", "1710000000.000100")]
 
 
+def test_reconciliation_reaction_rejects_wrong_workspace_before_lookup(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    service = FakeReconciliationService(
+        proposal=build_reconciliation_proposal(),
+    )
+    allow_reconciliation_approval(bot, monkeypatch, service)
+
+    handled = bot.handle_reconciliation_reaction_added(
+        reaction_event(team="T999"),
+    )
+
+    assert handled is False
+    assert service.lookups == []
+    assert service.confirmations == []
+
+
+def test_reconciliation_reaction_uses_body_team_id_before_event_fallback(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    service = FakeReconciliationService(
+        proposal=build_reconciliation_proposal(),
+    )
+    allow_reconciliation_approval(bot, monkeypatch, service)
+
+    handled = bot.handle_reconciliation_reaction_added(
+        reaction_event(team="T999"),
+        body={"team_id": "T123"},
+    )
+
+    assert handled is True
+    assert service.lookups == [("T123", "C123", "1710000000.000100")]
+
+
 def test_reconciliation_reaction_ignores_unknown_message(monkeypatch):
     bot = load_bot_module(monkeypatch)
     service = FakeReconciliationService(proposal=None)
@@ -540,6 +575,7 @@ def test_reconciliation_reaction_ignores_unauthorized_user(monkeypatch):
     )
 
     assert handled is False
+    assert service.lookups == []
     assert service.confirmations == []
 
 
@@ -553,6 +589,52 @@ def test_reconciliation_reaction_ignores_wrong_reaction(monkeypatch):
     handled = bot.handle_reconciliation_reaction_added(reaction_event(reaction="eyes"))
 
     assert handled is False
+    assert service.lookups == []
+    assert service.confirmations == []
+
+
+def test_reconciliation_reaction_accepts_skin_tone_reaction_variant(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    service = FakeReconciliationService(
+        proposal=build_reconciliation_proposal(),
+    )
+    monkeypatch.setattr(bot, "build_reconciliation_proposal_service", lambda: service)
+    monkeypatch.setattr(
+        bot,
+        "build_reconciliation_approval_policy",
+        lambda: ReconciliationApprovalPolicy(
+            lead_user_ids=frozenset({"UAPPROVER"}),
+            approval_reaction="+1",
+        ),
+    )
+
+    handled = bot.handle_reconciliation_reaction_added(
+        reaction_event(reaction="+1::skin-tone-3"),
+    )
+
+    assert handled is True
+    assert service.confirmations
+
+
+def test_reconciliation_reaction_skips_lookup_when_approval_unconfigured(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    service = FakeReconciliationService(
+        proposal=build_reconciliation_proposal(),
+    )
+    monkeypatch.setattr(bot, "build_reconciliation_proposal_service", lambda: service)
+    monkeypatch.setattr(
+        bot,
+        "build_reconciliation_approval_policy",
+        lambda: ReconciliationApprovalPolicy(
+            lead_user_ids=frozenset(),
+            approval_reaction="white_check_mark",
+        ),
+    )
+
+    handled = bot.handle_reconciliation_reaction_added(reaction_event())
+
+    assert handled is False
+    assert service.lookups == []
     assert service.confirmations == []
 
 
@@ -560,26 +642,42 @@ def test_reconciliation_reaction_ignores_expired_proposal(monkeypatch):
     bot = load_bot_module(monkeypatch)
     service = FakeReconciliationService(
         proposal=build_reconciliation_proposal(expired=True),
+        confirm_error=bot.InvalidProposalTransition("expired"),
     )
     allow_reconciliation_approval(bot, monkeypatch, service)
 
     handled = bot.handle_reconciliation_reaction_added(reaction_event())
 
     assert handled is False
-    assert service.confirmations == []
+    assert service.confirmations
 
 
 def test_reconciliation_reaction_ignores_already_confirmed_proposal(monkeypatch):
     bot = load_bot_module(monkeypatch)
     service = FakeReconciliationService(
         proposal=build_reconciliation_proposal(status=ProposalStatus.CONFIRMED),
+        confirm_error=bot.InvalidProposalTransition("already confirmed"),
     )
     allow_reconciliation_approval(bot, monkeypatch, service)
 
     handled = bot.handle_reconciliation_reaction_added(reaction_event())
 
     assert handled is False
-    assert service.confirmations == []
+    assert service.confirmations
+
+
+def test_reconciliation_reaction_ignores_missing_proposal_during_confirm(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    service = FakeReconciliationService(
+        proposal=build_reconciliation_proposal(),
+        confirm_error=bot.ProposalNotFound("missing"),
+    )
+    allow_reconciliation_approval(bot, monkeypatch, service)
+
+    handled = bot.handle_reconciliation_reaction_added(reaction_event())
+
+    assert handled is False
+    assert service.confirmations
 
 
 def test_reconciliation_reaction_logs_failures_safely(monkeypatch):

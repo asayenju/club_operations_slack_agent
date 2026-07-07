@@ -40,8 +40,8 @@ class IngestionSettings(BaseAppSettings):
     supabase_service_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
-            "SUPABASE_SERVICE_KEY",
             "SUPABASE_SERVICE_ROLE_KEY",
+            "SUPABASE_SERVICE_KEY",
         ),
     )
     supabase_anon_key: str | None = None

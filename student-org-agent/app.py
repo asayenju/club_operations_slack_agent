@@ -31,6 +31,7 @@ from reconciliation.approval import (
 from reconciliation.repository import SupabaseReconciliationProposalRepository
 from reconciliation.service import (
     InvalidProposalTransition,
+    ProposalNotFound,
     ReconciliationProposalService,
 )
 
@@ -215,7 +216,16 @@ def handle_reconciliation_reaction_event(event, body, ack):
 def handle_reconciliation_reaction_added(event, body=None) -> bool:
     workspace_id = reaction_workspace_id(event, body)
     item = event.get("item") or {}
-    if not workspace_id or item.get("type") != "message":
+    if not workspace_id:
+        logger.info("Ignored reconciliation reaction without workspace context")
+        return False
+    if item.get("type") != "message":
+        return False
+    if workspace_id != configured_workspace_id():
+        logger.info(
+            "Ignored reconciliation reaction from unconfigured workspace",
+            extra={"workspace_id": workspace_id},
+        )
         return False
 
     slack_channel_id = item.get("channel")
@@ -226,6 +236,11 @@ def handle_reconciliation_reaction_added(event, body=None) -> bool:
         return False
 
     try:
+        validate_reconciliation_approval(
+            policy=build_reconciliation_approval_policy(),
+            approving_user_id=approving_user_id,
+            reaction=reaction,
+        )
         service = build_reconciliation_proposal_service()
         proposal = service.find_by_slack_message(
             workspace_id,
@@ -235,19 +250,18 @@ def handle_reconciliation_reaction_added(event, body=None) -> bool:
         if proposal is None:
             return False
 
-        validate_reconciliation_approval(
-            proposal=proposal,
-            policy=build_reconciliation_approval_policy(),
-            approving_user_id=approving_user_id,
-            reaction=reaction,
-        )
         service.confirm(
             workspace_id=workspace_id,
             proposal_id=proposal.id,
             approving_user_id=approving_user_id,
         )
         return True
-    except (ReconciliationApprovalRejected, InvalidProposalTransition, ValueError):
+    except (
+        ReconciliationApprovalRejected,
+        InvalidProposalTransition,
+        ProposalNotFound,
+        ValueError,
+    ):
         logger.info(
             "Ignored reconciliation proposal reaction",
             extra={
@@ -263,7 +277,13 @@ def handle_reconciliation_reaction_added(event, body=None) -> bool:
 
 
 def reaction_workspace_id(event, body=None) -> str | None:
-    return event.get("team") or event.get("team_id") or (body or {}).get("team_id")
+    body = body or {}
+    return (
+        body.get("team_id")
+        or body.get("team")
+        or event.get("team")
+        or event.get("team_id")
+    )
 
 
 @app.command("/unregister")
