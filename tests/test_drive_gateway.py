@@ -51,6 +51,13 @@ class FakeFiles:
                         "parents": ["root"],
                         "modifiedTime": "2026-06-23T00:00:00Z",
                     },
+                    {
+                        "id": "image-1",
+                        "name": "Poster",
+                        "mimeType": "image/png",
+                        "parents": ["root"],
+                        "modifiedTime": "2026-06-23T00:00:00Z",
+                    },
                 ],
             },
             ("root", "page-2"): {
@@ -115,3 +122,11 @@ def test_scan_folder_is_recursive_and_paginated():
         "doc-2",
     }
     assert len(gateway.service.files_api.list_calls) == 3
+
+
+def test_scan_folder_excludes_unsupported_files():
+    gateway = GoogleDriveGateway(service=FakeService())
+
+    items = gateway.scan_folder("root")
+
+    assert "image-1" not in {item.file_id for item in items}

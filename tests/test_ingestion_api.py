@@ -107,6 +107,23 @@ def test_connect_drive_folder_endpoint(monkeypatch):
     assert response.json()["ingested"] == 2
 
 
+def test_disconnect_drive_folder_endpoint(monkeypatch):
+    service = SimpleNamespace(disconnect_folder=lambda folder: 2)
+    monkeypatch.setattr(
+        "ingestion_api.main.DriveSyncService.from_settings",
+        lambda: service,
+    )
+    client = build_client(monkeypatch)
+
+    response = client.post("/drive/disconnect", json={"folder": "root"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "disconnected",
+        "purged_sources": 2,
+    }
+
+
 def test_sync_drive_endpoint_queues_poll(monkeypatch):
     calls = []
     service = SimpleNamespace(poll_changes=lambda: calls.append("polled"))

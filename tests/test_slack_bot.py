@@ -267,8 +267,13 @@ def test_handle_connect_folder_command_reports_summary(monkeypatch):
     )
 
     assert responses[0] == {"acked": True}
-    assert responses[1]["response_type"] == "ephemeral"
-    assert "Club Files" in responses[1]["text"]
+    assert responses[1] == {
+        "response_type": "ephemeral",
+        "text": (
+            "Connected *Club Files*. "
+            "Discovered 5 items and ingested 2 changed files."
+        ),
+    }
 
 
 def test_handle_disconnect_folder_command_purges_sources(monkeypatch):

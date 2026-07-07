@@ -82,6 +82,7 @@ class InMemoryRegistry:
 class FakeDrive:
     def __init__(self):
         self.root = DriveItem("root", "Club Folder", FOLDER_MIME_TYPE)
+        self.scan_calls = []
         self.items = [
             DriveItem(
                 "doc-1",
@@ -104,6 +105,7 @@ class FakeDrive:
         return self.root
 
     def scan_folder(self, folder_id):
+        self.scan_calls.append(folder_id)
         return list(self.items)
 
     def get_start_page_token(self):
@@ -144,6 +146,18 @@ def test_connect_folder_ingests_supported_files_and_initializes_cursor():
     assert ingested == [("doc", "doc-1"), ("sheet", "sheet-1")]
     assert registry.page_token == "token-1"
     assert registry.folders["root"].connected_by == "U123"
+
+
+def test_connect_folder_records_discovered_supported_files():
+    service, registry, _, ingested, _ = build_service()
+
+    result = service.connect_folder("root")
+
+    assert result.discovered == 2
+    assert set(registry.files) == {("root", "doc-1"), ("root", "sheet-1")}
+    assert registry.files[("root", "doc-1")].mime_type == DOC_MIME_TYPE
+    assert registry.files[("root", "sheet-1")].mime_type == SHEET_MIME_TYPE
+    assert ingested == [("doc", "doc-1"), ("sheet", "sheet-1")]
 
 
 def test_connect_folder_rolls_back_new_registration_when_ingestion_fails():
@@ -239,6 +253,37 @@ def test_poll_changes_rescans_only_affected_roots_and_advances_token():
     assert result.synced_folders == 1
     assert registry.page_token == "token-2"
     assert ingested == [("doc", "doc-1")]
+
+
+def test_poll_changes_does_not_scan_changes_outside_connected_roots():
+    service, registry, drive, ingested, _ = build_service()
+    service.connect_folder("root")
+    ingested.clear()
+    drive.scan_calls.clear()
+    drive.change_pages = [
+        DriveChangesPage(
+            items=(
+                DriveItem(
+                    "outside-doc",
+                    "Outside Notes",
+                    DOC_MIME_TYPE,
+                    ("outside-folder",),
+                    "2026-06-24T00:00:00Z",
+                ),
+            ),
+            removed_file_ids=(),
+            next_page_token=None,
+            new_start_page_token="token-2",
+        )
+    ]
+
+    result = service.poll_changes()
+
+    assert result.changed_items == 1
+    assert result.synced_folders == 0
+    assert registry.page_token == "token-2"
+    assert drive.scan_calls == []
+    assert ingested == []
 
 
 def test_poll_changes_recovers_from_expired_cursor():
