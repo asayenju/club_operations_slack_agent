@@ -117,6 +117,6 @@ def ingest_sheet(sheet_id: str, modified_time: str | None = None) -> IngestionRe
     }
     print(
         f"[{normalized_id}]: {len(chunks)} inserted, "
-        f"{deleted} replaced, {len(chunks)} total"
+        f"{deleted} stale chunks deleted, {len(chunks)} total"
     )
     return result

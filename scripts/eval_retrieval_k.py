@@ -72,7 +72,7 @@ def best_k(recall: dict[int, float], threshold: float = 0.80) -> int:
     return min(candidates) if candidates else max(recall)
 
 
-def run_eval(tool: str) -> None:
+def run_eval(tool: str, output_dir: Path | None = None) -> None:
     cfg = _TOOL_CONFIG[tool]
     dataset = json.loads(cfg["dataset"].read_text())
     all_test_cases = dataset["test"]
@@ -188,7 +188,7 @@ def run_eval(tool: str) -> None:
                 f"best_sim={best_sim:.4f}  {tc['query'][:55]!r}"
             )
 
-    output_dir = Path(__file__).parent.parent / "eval_results"
+    output_dir = output_dir or Path(__file__).parent.parent / "eval_results"
     output_dir.mkdir(exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 

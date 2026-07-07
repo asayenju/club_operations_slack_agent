@@ -23,6 +23,17 @@ from registrations.repository import SupabaseRegistrationRepository
 from registrations.service import EmailAlreadyRegistered, RegistrationService
 
 from memoryAnswer.service import MemoryAnswerService
+from reconciliation.approval import (
+    ReconciliationApprovalPolicy,
+    ReconciliationApprovalRejected,
+    validate_reconciliation_approval,
+)
+from reconciliation.repository import SupabaseReconciliationProposalRepository
+from reconciliation.service import (
+    InvalidProposalTransition,
+    ProposalNotFound,
+    ReconciliationProposalService,
+)
 
 logger = logging.getLogger(__name__)
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -181,6 +192,98 @@ def build_registration_service() -> RegistrationService:
         settings.supabase_service_role_key,
     )
     return RegistrationService(repository)
+
+
+def build_reconciliation_proposal_service() -> ReconciliationProposalService:
+    settings = get_ingestion_settings()
+    repository = SupabaseReconciliationProposalRepository.from_settings(
+        supabase_url=settings.required_supabase_url,
+        supabase_service_key=settings.required_supabase_service_key,
+    )
+    return ReconciliationProposalService(repository)
+
+
+def build_reconciliation_approval_policy() -> ReconciliationApprovalPolicy:
+    return ReconciliationApprovalPolicy.from_settings(get_ingestion_settings())
+
+
+@app.event("reaction_added")
+def handle_reconciliation_reaction_event(event, body, ack):
+    ack()
+    handle_reconciliation_reaction_added(event, body=body)
+
+
+def handle_reconciliation_reaction_added(event, body=None) -> bool:
+    workspace_id = reaction_workspace_id(event, body)
+    item = event.get("item") or {}
+    if not workspace_id:
+        logger.info("Ignored reconciliation reaction without workspace context")
+        return False
+    if item.get("type") != "message":
+        return False
+    if workspace_id != configured_workspace_id():
+        logger.info(
+            "Ignored reconciliation reaction from unconfigured workspace",
+            extra={"workspace_id": workspace_id},
+        )
+        return False
+
+    slack_channel_id = item.get("channel")
+    slack_message_ts = item.get("ts")
+    approving_user_id = event.get("user")
+    reaction = event.get("reaction")
+    if not all([slack_channel_id, slack_message_ts, approving_user_id, reaction]):
+        return False
+
+    try:
+        validate_reconciliation_approval(
+            policy=build_reconciliation_approval_policy(),
+            approving_user_id=approving_user_id,
+            reaction=reaction,
+        )
+        service = build_reconciliation_proposal_service()
+        proposal = service.find_by_slack_message(
+            workspace_id,
+            slack_channel_id,
+            slack_message_ts,
+        )
+        if proposal is None:
+            return False
+
+        service.confirm(
+            workspace_id=workspace_id,
+            proposal_id=proposal.id,
+            approving_user_id=approving_user_id,
+        )
+        return True
+    except (
+        ReconciliationApprovalRejected,
+        InvalidProposalTransition,
+        ProposalNotFound,
+        ValueError,
+    ):
+        logger.info(
+            "Ignored reconciliation proposal reaction",
+            extra={
+                "workspace_id": workspace_id,
+                "slack_channel_id": slack_channel_id,
+                "slack_message_ts": slack_message_ts,
+            },
+        )
+        return False
+    except Exception:
+        logger.exception("Failed to handle reconciliation proposal reaction")
+        return False
+
+
+def reaction_workspace_id(event, body=None) -> str | None:
+    body = body or {}
+    return (
+        body.get("team_id")
+        or body.get("team")
+        or event.get("team")
+        or event.get("team_id")
+    )
 
 
 @app.command("/unregister")

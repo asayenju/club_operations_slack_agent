@@ -19,6 +19,8 @@ services:
       - ./common:/app/common
       - ./decisions:/app/decisions
       - ./ingestion_api:/app/ingestion_api
+      - ./memoryAnswer:/app/memoryAnswer
+      - ./reconciliation:/app/reconciliation
       - ./registrations:/app/registrations
       - ./student-org-agent:/app/student-org-agent
       - ./secrets:/app/secrets:ro
