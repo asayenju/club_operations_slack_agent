@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from memoryAnswer.composer import compose_answer, evaluate_conflict
-from tools.confidence import ConfidenceResult
+from tools.confidence import ConfidenceResult, score_confidence
 from tools.models import Citation, Evidence
 
 
@@ -17,6 +17,12 @@ def make_evidence(source: str, text: str = "some evidence text") -> Evidence:
 def make_mock_client(text: str) -> MagicMock:
     client = MagicMock()
     client.messages.create.return_value.content = [MagicMock(text=text)]
+    return client
+
+
+def make_refusal_client() -> MagicMock:
+    client = MagicMock()
+    client.messages.create.return_value.content = []
     return client
 
 
@@ -43,6 +49,18 @@ def test_evaluate_conflict_returns_conflicting():
 
 def test_evaluate_conflict_returns_unknown_on_unexpected_response():
     client = make_mock_client("I cannot determine this.")
+    result = evaluate_conflict([make_evidence("gdoc"), make_evidence("gsheet")], client=client)
+    assert result == "unknown"
+
+
+def test_evaluate_conflict_does_not_mistake_disagreeing_for_agreeing():
+    client = make_mock_client("These sources are disagreeing.")
+    result = evaluate_conflict([make_evidence("gdoc"), make_evidence("gsheet")], client=client)
+    assert result == "unknown"
+
+
+def test_evaluate_conflict_returns_unknown_on_refusal():
+    client = make_refusal_client()
     result = evaluate_conflict([make_evidence("gdoc"), make_evidence("gsheet")], client=client)
     assert result == "unknown"
 
@@ -92,7 +110,10 @@ def test_compose_prompt_contains_evidence_citation():
     confidence = ConfidenceResult(level="Medium", reason="Found in a single Google Doc.")
     compose_answer("question?", evidence, confidence, client=client)
     user_content = client.messages.create.call_args.kwargs["messages"][0]["content"]
-    assert "label-gdoc" in user_content
+    # The system prompt asks Claude to cite the bracketed source label itself
+    # (e.g. "[#general — 2026-06-21]"), so the evidence block must present it
+    # in that exact bracketed form rather than a numeric index.
+    assert "[label-gdoc]" in user_content
 
 
 def test_compose_prompt_contains_confidence_level_and_reason():
@@ -103,6 +124,15 @@ def test_compose_prompt_contains_confidence_level_and_reason():
     user_content = client.messages.create.call_args.kwargs["messages"][0]["content"]
     assert "High" in user_content
     assert "Supported by a formal /decide statement." in user_content
+
+
+def test_compose_returns_fallback_on_refusal():
+    client = make_refusal_client()
+    evidence = [make_evidence("gdoc")]
+    confidence = ConfidenceResult(level="Medium", reason="Found in a single Google Doc.")
+    answer, returned_confidence = compose_answer("question?", evidence, confidence, client=client)
+    assert "couldn't find" in answer.lower()
+    assert returned_confidence is confidence
 
 
 def test_compose_returns_claude_response_text():
@@ -151,6 +181,19 @@ def test_compose_updates_conflict_and_reason_when_agreeing():
         _, updated = compose_answer("question?", evidence, confidence, client=client)
     assert updated.conflict is False
     assert "Corroborated" in updated.reason
+
+
+def test_compose_upgrades_level_to_match_score_confidence_when_agreeing():
+    # Regression test: resolving an "unclear" conflict to "agreeing" must produce
+    # the same level/reason score_confidence(evidence, agreement="agreeing") would
+    # give directly, not the stale "Medium" from the original unclear scoring.
+    client = make_mock_client("The answer.")
+    evidence = [make_evidence("gdoc"), make_evidence("gsheet")]
+    confidence = ConfidenceResult(level="Medium", reason="Not verified.", conflict="unclear")
+    with patch("memoryAnswer.composer.evaluate_conflict", return_value="agreeing"):
+        _, updated = compose_answer("question?", evidence, confidence, client=client)
+    assert updated == score_confidence(evidence, agreement="agreeing")
+    assert updated.level == "High"
 
 
 def test_compose_updates_conflict_and_reason_when_conflicting():
