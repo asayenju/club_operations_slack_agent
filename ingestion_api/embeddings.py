@@ -5,7 +5,6 @@ import voyageai
 
 from common.config import get_ingestion_settings
 
-
 EMBED_MODEL = "voyage-3.5-lite"
 EMBED_DIMENSION = 1024
 

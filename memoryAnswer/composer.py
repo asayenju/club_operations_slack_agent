@@ -1,9 +1,12 @@
-import dataclasses
+import re
 
 import anthropic
 
-from tools.confidence import Agreement, ConfidenceResult
+from tools.confidence import Agreement, ConfidenceResult, score_confidence
 from tools.models import Evidence
+
+_AGREEING_RE = re.compile(r"\bagreeing\b")
+_CONFLICTING_RE = re.compile(r"\bconflicting\b")
 
 _MODEL = "claude-haiku-4-5-20251001"
 
@@ -37,9 +40,16 @@ def _get_client(client: anthropic.Anthropic | None) -> anthropic.Anthropic:
 
 def _format_evidence(evidence: list[Evidence]) -> str:
     parts = []
-    for i, ev in enumerate(evidence, 1):
-        parts.append(f"[{i}] Source: {ev.citation.label}\n{ev.text}")
+    for ev in evidence:
+        parts.append(f"[{ev.citation.label}]\n{ev.text}")
     return "\n\n".join(parts)
+
+
+def _extract_text(message: anthropic.types.Message) -> str | None:
+    """Return the model's text reply, or None if it refused / returned no content."""
+    if not message.content:
+        return None
+    return message.content[0].text
 
 
 def evaluate_conflict(
@@ -63,10 +73,14 @@ def evaluate_conflict(
         messages=[{"role": "user", "content": _format_evidence(evidence)}],
     )
 
-    reply = message.content[0].text.strip().lower()
-    if "agreeing" in reply:
+    reply_text = _extract_text(message)
+    if reply_text is None:
+        return "unknown"
+
+    reply = reply_text.strip().lower()
+    if _AGREEING_RE.search(reply):
         return "agreeing"
-    if "conflicting" in reply:
+    if _CONFLICTING_RE.search(reply):
         return "conflicting"
     return "unknown"
 
@@ -92,18 +106,7 @@ def compose_answer(
     if confidence.conflict == "unclear":
         agreement = evaluate_conflict(evidence, client=c)
         if agreement in ("agreeing", "conflicting"):
-            source_names = ", ".join(sorted({ev.source for ev in evidence}))
-            if agreement == "agreeing":
-                new_conflict: bool = False
-                new_reason = f"Corroborated by multiple independent sources: {source_names}."
-            else:
-                new_conflict = True
-                new_reason = f"Found conflicting evidence across multiple sources: {source_names}."
-            updated_confidence = dataclasses.replace(
-                confidence,
-                conflict=new_conflict,
-                reason=new_reason,
-            )
+            updated_confidence = score_confidence(evidence, agreement=agreement)
 
     user_content = (
         f"Evidence:\n{_format_evidence(evidence)}\n\n"
@@ -118,4 +121,8 @@ def compose_answer(
         messages=[{"role": "user", "content": user_content}],
     )
 
-    return message.content[0].text.strip(), updated_confidence
+    answer_text = _extract_text(message)
+    if answer_text is None:
+        return _NO_EVIDENCE_REPLY, updated_confidence
+
+    return answer_text.strip(), updated_confidence

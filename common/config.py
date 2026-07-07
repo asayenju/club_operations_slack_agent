@@ -37,7 +37,13 @@ class IngestionSettings(BaseAppSettings):
     app_env: str = "development"
     ingestion_port: int = 8000
     supabase_url: str | None = None
-    supabase_service_key: str | None = None
+    supabase_service_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "SUPABASE_SERVICE_KEY",
+        ),
+    )
     supabase_anon_key: str | None = None
     supabase_publishable_key: str | None = None
     voyage_api_key: str | None = None
@@ -46,6 +52,10 @@ class IngestionSettings(BaseAppSettings):
     drive_poll_interval_seconds: int = 300
     ingestion_api_key: str | None = None
     drive_sync_admin_user_ids: str | None = None
+    reconciliation_approval_user_ids: str | None = None
+    reconciliation_approval_reaction: str = "white_check_mark"
+    slack_backfill_limit: int = 200
+    slack_reconcile_cron_hour: int = 6
 
     def require(self, value: T | None, environment_name: str) -> T:
         if value is None or (isinstance(value, str) and not value.strip()):

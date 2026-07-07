@@ -14,6 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt -r student-org-agent/requirem
 COPY common ./common
 COPY decisions ./decisions
 COPY ingestion_api ./ingestion_api
+COPY memoryAnswer ./memoryAnswer
+COPY reconciliation ./reconciliation
 COPY registrations ./registrations
 COPY tools ./tools
 COPY student-org-agent ./student-org-agent

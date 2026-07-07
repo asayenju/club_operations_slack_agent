@@ -1,12 +1,20 @@
 import logging
 import os
 import re
+import threading
 
 from pydantic import ValidationError
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from common.config import get_ingestion_settings, get_slack_settings
+from common.slack_ingestion import (
+    delete_slack_message,
+    ingest_slack_message,
+    list_monitored_channels,
+    normalize_message,
+    run_channel_backfill,
+)
 from decisions.embedding import EmbeddingError, VoyageEmbeddingClient
 from decisions.repository import SupabaseDocumentsRepository
 from decisions.service import DecisionAlreadyStored, DecisionService
@@ -15,6 +23,17 @@ from registrations.repository import SupabaseRegistrationRepository
 from registrations.service import EmailAlreadyRegistered, RegistrationService
 
 from memoryAnswer.service import MemoryAnswerService
+from reconciliation.approval import (
+    ReconciliationApprovalPolicy,
+    ReconciliationApprovalRejected,
+    validate_reconciliation_approval,
+)
+from reconciliation.repository import SupabaseReconciliationProposalRepository
+from reconciliation.service import (
+    InvalidProposalTransition,
+    ProposalNotFound,
+    ReconciliationProposalService,
+)
 
 logger = logging.getLogger(__name__)
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -27,6 +46,25 @@ app = App(
     ).lower()
     == "true",
 )
+
+
+def _get_supabase():
+    from supabase import create_client
+    settings = get_slack_settings()
+    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+
+# ---------------------------------------------------------------------------
+# Slice 3 — Startup backfill
+# ---------------------------------------------------------------------------
+
+def _run_backfill() -> None:
+    try:
+        supabase = _get_supabase()
+        workspace_id = configured_workspace_id()
+        run_channel_backfill(app.client, supabase, workspace_id, log_prefix="backfill")
+    except Exception as exc:
+        print(f"[backfill] failed: {exc}")
 
 
 @app.message("hello")
@@ -154,6 +192,98 @@ def build_registration_service() -> RegistrationService:
         settings.supabase_service_role_key,
     )
     return RegistrationService(repository)
+
+
+def build_reconciliation_proposal_service() -> ReconciliationProposalService:
+    settings = get_ingestion_settings()
+    repository = SupabaseReconciliationProposalRepository.from_settings(
+        supabase_url=settings.required_supabase_url,
+        supabase_service_key=settings.required_supabase_service_key,
+    )
+    return ReconciliationProposalService(repository)
+
+
+def build_reconciliation_approval_policy() -> ReconciliationApprovalPolicy:
+    return ReconciliationApprovalPolicy.from_settings(get_ingestion_settings())
+
+
+@app.event("reaction_added")
+def handle_reconciliation_reaction_event(event, body, ack):
+    ack()
+    handle_reconciliation_reaction_added(event, body=body)
+
+
+def handle_reconciliation_reaction_added(event, body=None) -> bool:
+    workspace_id = reaction_workspace_id(event, body)
+    item = event.get("item") or {}
+    if not workspace_id:
+        logger.info("Ignored reconciliation reaction without workspace context")
+        return False
+    if item.get("type") != "message":
+        return False
+    if workspace_id != configured_workspace_id():
+        logger.info(
+            "Ignored reconciliation reaction from unconfigured workspace",
+            extra={"workspace_id": workspace_id},
+        )
+        return False
+
+    slack_channel_id = item.get("channel")
+    slack_message_ts = item.get("ts")
+    approving_user_id = event.get("user")
+    reaction = event.get("reaction")
+    if not all([slack_channel_id, slack_message_ts, approving_user_id, reaction]):
+        return False
+
+    try:
+        validate_reconciliation_approval(
+            policy=build_reconciliation_approval_policy(),
+            approving_user_id=approving_user_id,
+            reaction=reaction,
+        )
+        service = build_reconciliation_proposal_service()
+        proposal = service.find_by_slack_message(
+            workspace_id,
+            slack_channel_id,
+            slack_message_ts,
+        )
+        if proposal is None:
+            return False
+
+        service.confirm(
+            workspace_id=workspace_id,
+            proposal_id=proposal.id,
+            approving_user_id=approving_user_id,
+        )
+        return True
+    except (
+        ReconciliationApprovalRejected,
+        InvalidProposalTransition,
+        ProposalNotFound,
+        ValueError,
+    ):
+        logger.info(
+            "Ignored reconciliation proposal reaction",
+            extra={
+                "workspace_id": workspace_id,
+                "slack_channel_id": slack_channel_id,
+                "slack_message_ts": slack_message_ts,
+            },
+        )
+        return False
+    except Exception:
+        logger.exception("Failed to handle reconciliation proposal reaction")
+        return False
+
+
+def reaction_workspace_id(event, body=None) -> str | None:
+    body = body or {}
+    return (
+        body.get("team_id")
+        or body.get("team")
+        or event.get("team")
+        or event.get("team_id")
+    )
 
 
 @app.command("/unregister")
@@ -330,5 +460,66 @@ def handle_ask_command(ack, command, respond):
         )
 
 
+# ---------------------------------------------------------------------------
+# Slice 4 — Real-time message ingestion
+# ---------------------------------------------------------------------------
+
+_monitored_channels: dict[str, str] | None = None
+_monitored_lock = threading.Lock()
+
+
+def _get_monitored_channels() -> dict[str, str]:
+    """Return {channel_id: channel_name} from the monitored_channels config.
+
+    Slack's message events never include a channel_name field (on either
+    message_changed or a plain new message), so this config cache — not the
+    event payload — is the source of truth for the human-readable name.
+    """
+    global _monitored_channels
+    with _monitored_lock:
+        if _monitored_channels is None:
+            try:
+                supabase = _get_supabase()
+                rows = list_monitored_channels(supabase)
+                _monitored_channels = {r["channel_id"]: r["channel_name"] for r in rows}
+            except Exception as exc:
+                print(f"[monitored_channels] failed to load: {exc}")
+                return {}
+    return _monitored_channels
+
+
+@app.event("message")
+def handle_message(event, logger):
+    channel_id = event.get("channel", "")
+    monitored = _get_monitored_channels()
+    if channel_id not in monitored:
+        return
+
+    channel_name = monitored[channel_id]
+    subtype = event.get("subtype")
+    workspace_id = configured_workspace_id()
+
+    try:
+        if subtype == "message_deleted":
+            ts = event.get("deleted_ts", "")
+            if ts:
+                delete_slack_message(workspace_id, channel_id, ts)
+
+        elif subtype == "message_changed":
+            raw = event.get("message", {})
+            msg = normalize_message(raw, channel_id, channel_name)
+            if msg:
+                ingest_slack_message(workspace_id, msg)
+
+        elif subtype is None:
+            msg = normalize_message(event, channel_id, channel_name)
+            if msg:
+                ingest_slack_message(workspace_id, msg)
+
+    except Exception as exc:
+        logger.error(f"[handle_message] ingestion failed for {channel_id}: {exc}")
+
+
 if __name__ == "__main__":
+    threading.Thread(target=_run_backfill, daemon=True).start()
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()

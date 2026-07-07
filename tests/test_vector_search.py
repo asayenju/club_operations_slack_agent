@@ -249,6 +249,16 @@ def test_search_knowledge_gsheet_citation_label_with_sheet_name(monkeypatch):
     assert ev.timestamp is None
 
 
+def test_search_knowledge_gsheet_citation_label_with_ingested_tab_name(monkeypatch):
+    row = {**FAKE_GSHEET_ROW, "metadata": {"title": "Member Roster", "tab_name": "Members"}}
+    monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
+    monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [row])
+
+    results = search_knowledge(query="members", workspace_id="T123")
+
+    assert results[0].citation.label == "Member Roster › Members"
+
+
 def test_search_knowledge_gsheet_citation_label_falls_back_to_title_when_no_sheet_name(monkeypatch):
     monkeypatch.setattr("tools.vector_search.embed_documents", lambda texts, input_type="document": [FAKE_VECTOR])
     monkeypatch.setattr("tools.vector_search.match_documents", lambda ws, vec, limit, sources: [FAKE_GSHEET_ROW])

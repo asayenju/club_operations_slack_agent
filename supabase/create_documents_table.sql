@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS documents (
   channel_id    text,                  -- populated for slack_decide
   metadata      jsonb       NOT NULL DEFAULT '{}',
   embedding     vector(1024) NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT documents_workspace_source_key UNIQUE (workspace_id, source, source_id, chunk_key)

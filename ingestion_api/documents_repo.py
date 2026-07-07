@@ -5,6 +5,7 @@ from supabase import Client, create_client
 
 from common.config import get_ingestion_settings
 
+
 @lru_cache
 def get_supabase_client() -> Client:
     settings = get_ingestion_settings()
@@ -25,6 +26,31 @@ def existing_keys(workspace_id: str, source: str, source_id: str) -> set[str]:
         .execute()
     )
     return {row["chunk_key"] for row in response.data or []}
+
+
+def existing_key_state(workspace_id: str, source: str, source_id: str) -> dict[str, dict[str, Any]]:
+    """Return {chunk_key: {"content_hash": ..., "metadata": ...}} for a source.
+
+    Used to detect both content edits (content_hash) and thread activity
+    (metadata.latest_reply_ts) in a single query instead of two identical
+    scans over the same rows.
+    """
+    response = (
+        get_supabase_client()
+        .table("documents")
+        .select("chunk_key,content_hash,metadata")
+        .eq("workspace_id", workspace_id)
+        .eq("source", source)
+        .eq("source_id", source_id)
+        .execute()
+    )
+    return {
+        row["chunk_key"]: {
+            "content_hash": row["content_hash"],
+            "metadata": row.get("metadata") or {},
+        }
+        for row in response.data or []
+    }
 
 
 def upsert_chunks(rows: list[dict[str, Any]]) -> None:
@@ -48,9 +74,9 @@ def replace_source_chunks(
     source_id: str,
     rows: list[dict[str, Any]],
 ) -> int:
-    deleted = delete_source(workspace_id, source, source_id)
+    current_keys = {str(row["chunk_key"]) for row in rows}
     upsert_chunks(rows)
-    return deleted
+    return delete_missing(workspace_id, source, source_id, current_keys)
 
 
 def delete_source(workspace_id: str, source: str, source_id: str) -> int:
@@ -68,6 +94,21 @@ def delete_source(workspace_id: str, source: str, source_id: str) -> int:
         .execute()
     )
     return len(keys)
+
+
+def delete_chunk_key(workspace_id: str, source: str, source_id: str, chunk_key: str) -> int:
+    """Delete a single row by its exact chunk_key — O(1), no full-key scan."""
+    response = (
+        get_supabase_client()
+        .table("documents")
+        .delete()
+        .eq("workspace_id", workspace_id)
+        .eq("source", source)
+        .eq("source_id", source_id)
+        .eq("chunk_key", chunk_key)
+        .execute()
+    )
+    return len(response.data or [])
 
 
 def delete_missing(
