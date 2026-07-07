@@ -74,9 +74,9 @@ def replace_source_chunks(
     source_id: str,
     rows: list[dict[str, Any]],
 ) -> int:
-    deleted = delete_source(workspace_id, source, source_id)
+    current_keys = {str(row["chunk_key"]) for row in rows}
     upsert_chunks(rows)
-    return deleted
+    return delete_missing(workspace_id, source, source_id, current_keys)
 
 
 def delete_source(workspace_id: str, source: str, source_id: str) -> int:
