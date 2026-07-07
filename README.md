@@ -140,7 +140,26 @@ Before using folder sync, run this migration in the Supabase SQL editor:
 supabase/migrations/20260623_drive_folder_sync.sql
 ```
 
-Then update or reinstall the Slack app manifest and connect a folder:
+Set these environment values for the Slack bot, ingestion API, and Drive sync
+worker:
+
+```text
+SLACK_BOT_TOKEN=...
+SLACK_APP_TOKEN=...
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+VOYAGE_API_KEY=...
+WORKSPACE_ID=...
+GOOGLE_TOKEN_PATH=secrets/club_token.json
+DRIVE_POLL_INTERVAL_SECONDS=300
+```
+
+`SUPABASE_SERVICE_KEY` is also accepted as an alias for
+`SUPABASE_SERVICE_ROLE_KEY`; when both are set, `SUPABASE_SERVICE_ROLE_KEY`
+is used.
+
+Then update or reinstall the Slack app manifest so `/connect-folder` and
+`/disconnect-folder` are available, and connect a folder:
 
 ```text
 /connect-folder https://drive.google.com/drive/folders/<folder_id>
@@ -153,9 +172,10 @@ folders:
 DRIVE_SYNC_ADMIN_USER_IDS=U123456789,U987654321
 ```
 
-The initial scan recursively discovers Google Docs and Sheets in all
-subfolders. Files are dispatched to the existing heading-based Docs ingestor or
-the full-rewrite Sheets ingestor. Folder and file membership is stored in:
+The initial scan recursively walks subfolders and records subfolder membership
+plus supported Google Docs and Sheets. Supported files are dispatched to the
+existing heading-based Docs ingestor or the full-rewrite Sheets ingestor.
+Folder and file membership is stored in:
 
 - `connected_folders`
 - `connected_files`

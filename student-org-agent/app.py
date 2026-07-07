@@ -391,7 +391,7 @@ def handle_connect_folder_command(ack, command, respond):
         response_type="ephemeral",
         text=(
             f"Connected *{result.folder_name}*. "
-            f"Found {result.discovered} supported items and ingested "
+            f"Discovered {result.discovered} items and ingested "
             f"{result.ingested} changed files."
         ),
     )
