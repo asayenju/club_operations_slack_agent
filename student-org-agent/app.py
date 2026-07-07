@@ -450,7 +450,10 @@ def handle_ask_command(ack, command, respond):
         answer = service.answer(question, command["team_id"])
         respond(
             response_type="ephemeral",
-            text=f"{answer.answer}\n_Confidence: {answer.confidence}_",
+            text=(
+                f"{answer.answer}\n"
+                f"_Confidence: {answer.confidence.level} — {answer.confidence.reason}_"
+            ),
         )
     except Exception:
         logger.exception("Failed to answer question")

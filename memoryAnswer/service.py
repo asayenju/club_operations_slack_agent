@@ -1,32 +1,19 @@
-from dataclasses import dataclass, field
-from typing import Protocol
+from dataclasses import dataclass
 
-
-class MemoryRetriever(Protocol):
-    def search(self, question: str, workspace_id: str) -> list[dict]:
-        ...
+from memoryAnswer.composer import compose_answer
+from tools.confidence import ConfidenceResult, score_confidence
+from tools.vector_search import search_decisions, search_knowledge
 
 
 @dataclass
 class MemoryAnswer:
     answer: str
-    sources: list[str] = field(default_factory=list)
-    confidence: str = "low"
-
-
-class MockMemoryRetriever:
-    def search(self, question: str, workspace_id: str) -> list[dict]:
-        return []
+    confidence: ConfidenceResult
 
 
 class MemoryAnswerService:
-    def __init__(self, retriever: MemoryRetriever | None = None):
-        self.retriever = retriever or MockMemoryRetriever()
-
     def answer(self, question: str, workspace_id: str) -> MemoryAnswer:
-        self.retriever.search(question, workspace_id)
-        return MemoryAnswer(
-            answer="This is a placeholder answer. Memory search is not yet implemented.",
-            sources=[],
-            confidence="low",
-        )
+        evidence = search_decisions(question, workspace_id) + search_knowledge(question, workspace_id)
+        confidence = score_confidence(evidence)
+        answer_text, final_confidence = compose_answer(question, evidence, confidence)
+        return MemoryAnswer(answer=answer_text, confidence=final_confidence)
