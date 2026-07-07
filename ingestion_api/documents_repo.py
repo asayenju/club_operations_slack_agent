@@ -53,6 +53,30 @@ def existing_key_state(workspace_id: str, source: str, source_id: str) -> dict[s
     }
 
 
+def list_by_source(
+    workspace_id: str,
+    source: str,
+    since: str | None = None,
+) -> list[dict[str, Any]]:
+    """List all rows for a workspace/source with no vector search or similarity threshold.
+
+    Used where a semantic-search cutoff would risk false negatives (e.g.
+    detecting whether a decision exists at all, not just whether one is a
+    close match to a query).
+    """
+    query = (
+        get_supabase_client()
+        .table("documents")
+        .select("source,content,source_id,chunk_key,author_id,channel_id,metadata,created_at")
+        .eq("workspace_id", workspace_id)
+        .eq("source", source)
+    )
+    if since:
+        query = query.gte("created_at", since)
+    response = query.execute()
+    return response.data or []
+
+
 def upsert_chunks(rows: list[dict[str, Any]]) -> None:
     if not rows:
         return

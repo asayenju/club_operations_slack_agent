@@ -1,6 +1,6 @@
 from typing import Any
 
-from ingestion_api.documents_repo import match_documents
+from ingestion_api.documents_repo import list_by_source, match_documents
 from ingestion_api.embeddings import embed_documents
 from tools.models import Citation, Evidence
 
@@ -106,6 +106,21 @@ def search_knowledge(
 
     results = [_row_to_evidence(row) for row in rows]
     return [ev for ev in results if ev.similarity is not None and ev.similarity >= min_similarity]
+
+
+def list_decisions(workspace_id: str, since: str | None = None) -> list[Evidence]:
+    """List all /decide records for a workspace, no similarity threshold.
+
+    Unlike search_decisions, this has no vector-search cutoff — used to check
+    whether a decision exists at all (e.g. for reconciliation's missing-decision
+    detection), where a real but low-similarity match would otherwise be
+    filtered out and look like a false "missing" decision.
+    """
+    if not workspace_id.strip():
+        raise ValueError("workspace_id must not be empty")
+
+    rows = list_by_source(workspace_id, source="slack_decide", since=since)
+    return [_row_to_evidence(row) for row in rows]
 
 
 def _build_citation(source: str, row: dict[str, Any], meta: dict[str, Any]) -> Citation:

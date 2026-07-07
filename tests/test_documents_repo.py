@@ -69,6 +69,10 @@ class _FakeQuery:
         self._recorder.append(("eq", args, kwargs))
         return self
 
+    def gte(self, *args, **kwargs):
+        self._recorder.append(("gte", args, kwargs))
+        return self
+
     def in_(self, *args, **kwargs):
         self._recorder.append(("in_", args, kwargs))
         return self
@@ -135,6 +139,34 @@ def test_existing_key_state_combines_hash_and_metadata_in_one_query(monkeypatch)
     select_calls = [c for c in calls if c[0] == "select"]
     assert len(select_calls) == 1
     assert select_calls[0][1] == ("chunk_key,content_hash,metadata",)
+
+
+def test_list_by_source_filters_workspace_and_source(monkeypatch):
+    calls = []
+    rows = [{"source": "slack_decide", "content": "We approved $300."}]
+    monkeypatch.setattr(documents_repo, "get_supabase_client", lambda: _FakeClient(calls, rows))
+
+    result = documents_repo.list_by_source("T1", "slack_decide")
+
+    assert result == rows
+    assert ("eq", ("workspace_id", "T1"), {}) in calls
+    assert ("eq", ("source", "slack_decide"), {}) in calls
+    assert not any(c[0] == "gte" for c in calls)
+
+
+def test_list_by_source_applies_since_filter_only_when_given(monkeypatch):
+    calls = []
+    monkeypatch.setattr(documents_repo, "get_supabase_client", lambda: _FakeClient(calls, []))
+
+    documents_repo.list_by_source("T1", "slack_decide", since="2026-06-01T00:00:00+00:00")
+
+    assert ("gte", ("created_at", "2026-06-01T00:00:00+00:00"), {}) in calls
+
+
+def test_list_by_source_returns_empty_list_for_no_rows(monkeypatch):
+    monkeypatch.setattr(documents_repo, "get_supabase_client", lambda: _FakeClient([], None))
+
+    assert documents_repo.list_by_source("T1", "slack_decide") == []
 
 
 def test_delete_chunk_key_targets_exact_row(monkeypatch):
