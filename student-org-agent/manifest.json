@@ -72,9 +72,11 @@
       "request_url": "https://YOUR_PUBLIC_DOMAIN/slack/events",
       "bot_events": [
         "app_mention",
+        "app_uninstalled",
         "message.channels",
         "message.im",
-        "reaction_added"
+        "reaction_added",
+        "tokens_revoked"
       ]
     },
     "interactivity": {

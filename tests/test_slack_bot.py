@@ -158,6 +158,86 @@ def test_run_backfill_skips_workspace_with_no_bot_token(monkeypatch):
     assert backfill_calls == []
 
 
+class _FakeInstallationStoreForUninstall:
+    def __init__(self, supabase):
+        self.deleted_team_ids = []
+
+    def delete_all(self, *, enterprise_id, team_id):
+        self.deleted_team_ids.append(team_id)
+
+
+def _stub_uninstall_dependencies(bot, monkeypatch, *, deleted_channel_counts=None):
+    store = _FakeInstallationStoreForUninstall(None)
+    monkeypatch.setattr(bot, "SupabaseInstallationStore", lambda supabase: store)
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    deleted_channels = []
+    monkeypatch.setattr(
+        bot,
+        "delete_monitored_channels_for_workspace",
+        lambda supabase, workspace_id: deleted_channels.append(workspace_id) or (deleted_channel_counts or 0),
+    )
+    return store, deleted_channels
+
+
+def test_app_uninstalled_removes_installation_and_monitored_channels(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    store, deleted_channels = _stub_uninstall_dependencies(bot, monkeypatch)
+    bot._monitored_channels_by_workspace["T_UNINSTALLED"] = {"C01": "general"}
+
+    bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=SimpleNamespace(
+        info=lambda *a, **k: None, exception=lambda *a, **k: None,
+    ))
+
+    assert store.deleted_team_ids == ["T_UNINSTALLED"]
+    assert deleted_channels == ["T_UNINSTALLED"]
+    assert "T_UNINSTALLED" not in bot._monitored_channels_by_workspace
+
+
+def test_app_uninstalled_is_idempotent(monkeypatch):
+    """Slack does not guarantee exactly-once delivery -- receiving this
+    event twice for the same team must not raise."""
+    bot = load_bot_module(monkeypatch)
+    store, _ = _stub_uninstall_dependencies(bot, monkeypatch)
+    noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
+
+    bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
+    bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
+
+    assert store.deleted_team_ids == ["T_UNINSTALLED", "T_UNINSTALLED"]
+
+
+def test_tokens_revoked_removes_installation_when_bot_token_revoked(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    store, deleted_channels = _stub_uninstall_dependencies(bot, monkeypatch)
+    noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
+
+    bot.handle_tokens_revoked(
+        event={"tokens": {"bot": ["U_BOT_1"], "oauth": []}},
+        context={"team_id": "T_REVOKED"},
+        logger=noop_logger,
+    )
+
+    assert store.deleted_team_ids == ["T_REVOKED"]
+    assert deleted_channels == ["T_REVOKED"]
+
+
+def test_tokens_revoked_ignores_user_only_token_revocation(monkeypatch):
+    """This app is bot-scope-only (installation_store_bot_only=True) -- a
+    revoked user token with no bot token revoked isn't ours to react to."""
+    bot = load_bot_module(monkeypatch)
+    store, deleted_channels = _stub_uninstall_dependencies(bot, monkeypatch)
+    noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
+
+    bot.handle_tokens_revoked(
+        event={"tokens": {"bot": [], "oauth": ["U123"]}},
+        context={"team_id": "T_REVOKED"},
+        logger=noop_logger,
+    )
+
+    assert store.deleted_team_ids == []
+    assert deleted_channels == []
+
+
 def test_build_hello_response_mentions_user(monkeypatch):
     bot = load_bot_module(monkeypatch)
 
