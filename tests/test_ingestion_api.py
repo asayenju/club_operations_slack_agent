@@ -12,6 +12,10 @@ from ingestion_api.drive_sync import FolderSyncResult
 def build_client(monkeypatch):
     monkeypatch.setattr(main.settings, "app_env", "development")
     monkeypatch.setattr(main.settings, "ingestion_api_key", None)
+    # _get_slack_client now resolves a per-workspace bot token from the
+    # slack_installations table (issue #61) instead of a static env var --
+    # stub it out so lifespan/backfill tests don't hit real Supabase.
+    monkeypatch.setattr(main, "_get_slack_client", lambda: SimpleNamespace())
     return TestClient(main.app)
 
 
@@ -162,6 +166,28 @@ def test_ingestion_api_accepts_configured_api_key(monkeypatch):
     )
 
     assert response.status_code == 202
+
+
+def test_get_slack_client_resolves_bot_token_from_installation_store(monkeypatch):
+    fake_bot = SimpleNamespace(bot_token="xoxb-resolved-token")
+    fake_store = SimpleNamespace(find_bot=lambda **kwargs: fake_bot)
+    monkeypatch.setattr(main, "SupabaseInstallationStore", lambda supabase: fake_store)
+    monkeypatch.setattr(main, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(main.settings, "workspace_id", "T123")
+
+    client = main._get_slack_client()
+
+    assert client.token == "xoxb-resolved-token"
+
+
+def test_get_slack_client_raises_when_workspace_not_installed(monkeypatch):
+    fake_store = SimpleNamespace(find_bot=lambda **kwargs: None)
+    monkeypatch.setattr(main, "SupabaseInstallationStore", lambda supabase: fake_store)
+    monkeypatch.setattr(main, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(main.settings, "workspace_id", "T_NOT_INSTALLED")
+
+    with pytest.raises(RuntimeError, match="No Slack installation found"):
+        main._get_slack_client()
 
 
 def test_slack_backfill_endpoint_accepts_request(monkeypatch):

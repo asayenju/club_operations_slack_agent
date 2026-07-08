@@ -6,6 +6,7 @@ import threading
 from pydantic import ValidationError
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+from slack_bolt.oauth.oauth_settings import OAuthSettings
 
 from common.config import get_ingestion_settings, get_slack_settings
 from common.slack_ingestion import (
@@ -15,6 +16,7 @@ from common.slack_ingestion import (
     normalize_message,
     run_channel_backfill,
 )
+from common.slack_installation_store import SupabaseInstallationStore
 from decisions.embedding import EmbeddingError, VoyageEmbeddingClient
 from decisions.repository import SupabaseDocumentsRepository
 from decisions.service import DecisionAlreadyStored, DecisionService
@@ -38,20 +40,42 @@ from reconciliation.service import (
 logger = logging.getLogger(__name__)
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-
-app = App(
-    token=os.environ.get("SLACK_BOT_TOKEN"),
-    token_verification_enabled=os.environ.get(
-        "SLACK_TOKEN_VERIFICATION_ENABLED", "false"
-    ).lower()
-    == "true",
-)
+# Must match student-org-agent/manifest.json's oauth_config.scopes.bot exactly
+# -- this is what Slack's OAuth consent screen actually grants per install.
+BOT_SCOPES = [
+    "app_mentions:read",
+    "channels:history",
+    "chat:write",
+    "commands",
+    "im:history",
+    "reactions:read",
+    "search:read.public",
+]
 
 
 def _get_supabase():
     from supabase import create_client
     settings = get_slack_settings()
     return create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+
+_slack_settings = get_slack_settings()
+
+app = App(
+    signing_secret=_slack_settings.slack_signing_secret,
+    installation_store=SupabaseInstallationStore(_get_supabase()),
+    installation_store_bot_only=True,
+    oauth_settings=OAuthSettings(
+        client_id=_slack_settings.slack_client_id,
+        client_secret=_slack_settings.slack_client_secret,
+        scopes=BOT_SCOPES,
+        installation_store_bot_only=True,
+    ),
+    token_verification_enabled=os.environ.get(
+        "SLACK_TOKEN_VERIFICATION_ENABLED", "false"
+    ).lower()
+    == "true",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -523,6 +547,37 @@ def handle_message(event, logger):
         logger.error(f"[handle_message] ingestion failed for {channel_id}: {exc}")
 
 
+# ---------------------------------------------------------------------------
+# OAuth install flow (issue #61)
+#
+# Socket Mode (used below for events) has no HTTP surface of its own, so the
+# "Add to Slack" install button and Slack's OAuth redirect callback need a
+# small HTTP server of their own. This runs on its own port
+# (SLACK_OAUTH_PORT) alongside the Socket Mode connection in the same
+# process. Once #62 migrates event delivery to HTTP mode, this server can
+# absorb the /slack/events route too instead of running standalone.
+# ---------------------------------------------------------------------------
+
+def _run_oauth_server() -> None:
+    import uvicorn
+    from fastapi import FastAPI, Request
+    from slack_bolt.adapter.fastapi import SlackRequestHandler
+
+    handler = SlackRequestHandler(app)
+    oauth_app = FastAPI()
+
+    @oauth_app.get("/slack/install")
+    async def install(request: Request):
+        return await handler.handle(request)
+
+    @oauth_app.get("/slack/oauth_redirect")
+    async def oauth_redirect(request: Request):
+        return await handler.handle(request)
+
+    uvicorn.run(oauth_app, host="0.0.0.0", port=_slack_settings.slack_oauth_port, log_level="warning")
+
+
 if __name__ == "__main__":
     threading.Thread(target=_run_backfill, daemon=True).start()
+    threading.Thread(target=_run_oauth_server, daemon=True).start()
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()

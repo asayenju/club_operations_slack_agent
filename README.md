@@ -22,8 +22,9 @@ docker compose up --build
 ```
 
 The ingestion API will be available at `http://localhost:8000`.
-The Slack bot will connect using Socket Mode when `SLACK_BOT_TOKEN` and
-`SLACK_APP_TOKEN` are set in `.env`.
+The Slack bot connects for events using Socket Mode (`SLACK_APP_TOKEN`), but
+no longer uses a single static bot token — see
+[Multi-workspace install (OAuth)](#multi-workspace-install-oauth) below.
 
 The Slack bot responds to messages containing `hello` and supports `/decide`
 for recording club decisions into the existing Supabase `documents` table.
@@ -91,6 +92,53 @@ semantic chunker.
 The Slack app manifest includes `/decide`, but the Slack app must be updated or
 reinstalled for the slash command to appear in the workspace.
 
+## Multi-workspace install (OAuth)
+
+The app is installable by more than one Slack workspace at once (issue #61).
+Each installing workspace gets its own bot token via Slack's OAuth flow
+rather than sharing one static `SLACK_BOT_TOKEN` — that env var no longer
+exists. Tokens are stored encrypted in the `slack_installations` table
+instead of an env var.
+
+Run this migration before installing into any workspace:
+
+```text
+supabase/migrations/20260708_slack_installations.sql
+```
+
+Required `.env` values:
+
+```text
+SLACK_APP_TOKEN=...
+SLACK_CLIENT_ID=...
+SLACK_CLIENT_SECRET=...
+SLACK_SIGNING_SECRET=...
+APP_ENCRYPTION_KEY=...
+```
+
+`SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`/`SLACK_SIGNING_SECRET` come from the
+Slack app's **Basic Information** page — Distribution must be turned on for
+`client_id`/`client_secret` to be visible. `APP_ENCRYPTION_KEY` encrypts
+tokens at rest; generate one with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+`SLACK_APP_TOKEN` (the Socket Mode app-level token) is still a single value
+in `.env` — it's shared by the whole Slack app regardless of which
+workspaces have installed it, unlike the per-workspace bot token.
+
+To install into a workspace, visit `http://<host>:<SLACK_OAUTH_PORT>/slack/install`
+(default port `3000`) and complete Slack's OAuth consent screen. This runs
+as its own small HTTP server alongside the bot's Socket Mode connection —
+it is not yet reachable from the public internet (that's issue #62).
+
+Commands are not yet workspace-aware beyond this install flow — every
+command still checks against a single `WORKSPACE_ID` (issue #63 replaces
+that with a lookup against `slack_installations`), and `app_uninstalled`/
+`tokens_revoked` cleanup isn't wired up yet (issue #64).
+
 ## Slack-to-Google account registration
 
 Run this migration before enabling account registration:
@@ -144,7 +192,6 @@ Set these environment values for the Slack bot, ingestion API, and Drive sync
 worker:
 
 ```text
-SLACK_BOT_TOKEN=...
 SLACK_APP_TOKEN=...
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...

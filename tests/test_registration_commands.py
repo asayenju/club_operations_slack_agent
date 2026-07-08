@@ -30,8 +30,10 @@ class FakeRegistrationService:
 
 
 def load_bot_module(monkeypatch):
-    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
     monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
+    monkeypatch.setenv("SLACK_CLIENT_ID", "client-id-test")
+    monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret-test")
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret-test")
     monkeypatch.setenv("WORKSPACE_ID", "T123")
     module_path = Path(__file__).resolve().parents[1] / "student-org-agent" / "app.py"
     spec = importlib.util.spec_from_file_location("student_org_agent_register", module_path)

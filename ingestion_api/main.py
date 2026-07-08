@@ -11,6 +11,7 @@ from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings
 from common.slack_ingestion import list_monitored_channels, run_channel_backfill
+from common.slack_installation_store import SupabaseInstallationStore
 from common.slack_scopes import verify_slack_scopes
 from ingestion_api.drive_sync import DriveSyncService
 from ingestion_api.ingest_docs import IngestionResult, ingest_doc
@@ -26,8 +27,17 @@ def _get_supabase():
 
 
 def _get_slack_client() -> WebClient:
-    import os
-    return WebClient(token=os.environ.get("SLACK_BOT_TOKEN", ""))
+    """Resolve the bot token for the configured workspace via the OAuth
+    InstallationStore (issue #61) rather than a single static env var --
+    that per-deployment SLACK_BOT_TOKEN no longer exists."""
+    store = SupabaseInstallationStore(_get_supabase())
+    bot = store.find_bot(enterprise_id=None, team_id=settings.required_workspace_id)
+    if bot is None or not bot.bot_token:
+        raise RuntimeError(
+            f"No Slack installation found for workspace {settings.required_workspace_id!r}. "
+            "Complete the OAuth install flow at /slack/install first."
+        )
+    return WebClient(token=bot.bot_token)
 
 
 def _run_slack_backfill() -> None:
