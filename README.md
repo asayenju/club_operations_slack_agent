@@ -323,6 +323,14 @@ curl -X POST http://localhost:8000/webhooks/spreadsheets \
 
 ## Slack message ingestion
 
+Run this migration before starting the bot, or `ingestion-api`/`slack-bot`
+will crash-loop on startup with
+`Could not find the table 'public.monitored_channels' in the schema cache`:
+
+```text
+supabase/migrations/20260703_monitored_channels.sql
+```
+
 The bot does **not** scan or ingest the workspace's full Slack history. Only
 channels explicitly listed in the `monitored_channels` Supabase table are ever
 backfilled or watched in real time — see
