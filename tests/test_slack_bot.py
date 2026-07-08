@@ -99,6 +99,65 @@ def reaction_event(**overrides):
     return event
 
 
+def test_run_backfill_iterates_every_installed_workspace(monkeypatch):
+    """Issue #63: startup backfill can no longer assume a single configured
+    workspace -- it must backfill every currently-installed workspace, each
+    with its own resolved bot token."""
+    bot = load_bot_module(monkeypatch)
+    backfill_calls = []
+
+    class FakeInstallationStore:
+        def __init__(self, supabase):
+            pass
+
+        def list_team_ids(self):
+            return ["T_A", "T_B"]
+
+        def find_bot(self, *, enterprise_id, team_id):
+            return SimpleNamespace(bot_token=f"xoxb-{team_id}")
+
+    monkeypatch.setattr(bot, "SupabaseInstallationStore", FakeInstallationStore)
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "run_channel_backfill",
+        lambda client, supabase, workspace_id, log_prefix=None: backfill_calls.append(
+            (workspace_id, client.token)
+        ),
+    )
+
+    bot._run_backfill()
+
+    assert sorted(backfill_calls) == [("T_A", "xoxb-T_A"), ("T_B", "xoxb-T_B")]
+
+
+def test_run_backfill_skips_workspace_with_no_bot_token(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    backfill_calls = []
+
+    class FakeInstallationStore:
+        def __init__(self, supabase):
+            pass
+
+        def list_team_ids(self):
+            return ["T_NO_BOT"]
+
+        def find_bot(self, *, enterprise_id, team_id):
+            return None
+
+    monkeypatch.setattr(bot, "SupabaseInstallationStore", FakeInstallationStore)
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "run_channel_backfill",
+        lambda client, supabase, workspace_id, log_prefix=None: backfill_calls.append(workspace_id),
+    )
+
+    bot._run_backfill()
+
+    assert backfill_calls == []
+
+
 def test_build_hello_response_mentions_user(monkeypatch):
     bot = load_bot_module(monkeypatch)
 
@@ -141,6 +200,33 @@ def test_handle_decide_command_stores_decision_and_confirms_publicly(monkeypatch
     ]
     assert service.commands == [
         {"team_id": "T123", "text": "  We approved snacks.  ", "user_id": "U123"}
+    ]
+
+
+def test_handle_decide_command_works_for_any_installed_workspace(monkeypatch):
+    """Issue #63: no static WORKSPACE_ID allowlist anymore -- any team_id
+    Bolt's own OAuth authorization let through gets served, not just the one
+    workspace previously hardcoded via configured_workspace_id()."""
+    bot = load_bot_module(monkeypatch)
+    service = FakeDecisionService()
+    responses = []
+
+    monkeypatch.setattr(bot, "build_decision_service", lambda: service)
+    bot.handle_decide_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_SOME_OTHER_WORKSPACE", "text": "We approved snacks.", "user_id": "U123"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "in_channel",
+            "text": "Decision recorded by <@U123>: We approved snacks.",
+        },
+    ]
+    assert service.commands == [
+        {"team_id": "T_SOME_OTHER_WORKSPACE", "text": "We approved snacks.", "user_id": "U123"}
     ]
 
 
@@ -220,26 +306,6 @@ def test_handle_decide_command_reports_failures_ephemerally(monkeypatch):
     ]
 
 
-def test_handle_decide_command_rejects_wrong_workspace(monkeypatch):
-    bot = load_bot_module(monkeypatch)
-    service = FakeDecisionService()
-    responses = []
-
-    monkeypatch.setattr(bot, "build_decision_service", lambda: service)
-    bot.handle_decide_command(
-        ack=lambda: responses.append({"acked": True}),
-        command={"team_id": "T_OTHER", "text": "We approved snacks."},
-        respond=lambda **kwargs: responses.append(kwargs),
-    )
-
-    assert responses == [
-        {"acked": True},
-        {
-            "response_type": "ephemeral",
-            "text": "This command is not available in this workspace.",
-        },
-    ]
-    assert service.commands == []
 
 
 def test_handle_connect_folder_command_reports_summary(monkeypatch):
@@ -317,7 +383,7 @@ def test_handle_connect_folder_command_rejects_wrong_workspace(monkeypatch):
         {"acked": True},
         {
             "response_type": "ephemeral",
-            "text": "This command is not available in this workspace.",
+            "text": "Google Drive is not yet connected for this workspace.",
         },
     ]
 
@@ -350,25 +416,6 @@ def test_handle_ask_command_rejects_empty_text(monkeypatch):
         {
             "response_type": "ephemeral",
             "text": "Usage: `/ask <your question>`",
-        },
-    ]
-
-
-def test_handle_ask_command_rejects_wrong_workspace(monkeypatch):
-    bot = load_bot_module(monkeypatch)
-    responses = []
-
-    bot.handle_ask_command(
-        ack=lambda: responses.append({"acked": True}),
-        command={"team_id": "T_OTHER", "text": "What is our budget?"},
-        respond=lambda **kwargs: responses.append(kwargs),
-    )
-
-    assert responses == [
-        {"acked": True},
-        {
-            "response_type": "ephemeral",
-            "text": "This command is not available in this workspace.",
         },
     ]
 
@@ -510,22 +557,6 @@ def test_reconciliation_reaction_uses_body_team_id_when_event_omits_team(
 
     assert handled is True
     assert service.lookups == [("T123", "C123", "1710000000.000100")]
-
-
-def test_reconciliation_reaction_rejects_wrong_workspace_before_lookup(monkeypatch):
-    bot = load_bot_module(monkeypatch)
-    service = FakeReconciliationService(
-        proposal=build_reconciliation_proposal(),
-    )
-    allow_reconciliation_approval(bot, monkeypatch, service)
-
-    handled = bot.handle_reconciliation_reaction_added(
-        reaction_event(team="T999"),
-    )
-
-    assert handled is False
-    assert service.lookups == []
-    assert service.confirmations == []
 
 
 def test_reconciliation_reaction_uses_body_team_id_before_event_fallback(monkeypatch):

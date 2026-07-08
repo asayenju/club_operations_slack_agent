@@ -47,6 +47,8 @@ class _FakeTable:
             team_id = self._filters.get("team_id")
             self._rows_by_team.pop(team_id, None)
             return SimpleNamespace(data=[])
+        if not self._filters:
+            return SimpleNamespace(data=list(self._rows_by_team.values()))
         team_id = self._filters.get("team_id")
         row = self._rows_by_team.get(team_id)
         return SimpleNamespace(data=[row] if row else [])
@@ -105,6 +107,21 @@ def test_find_bot_returns_none_for_unknown_team():
     store = SupabaseInstallationStore(_FakeSupabase())
 
     assert store.find_bot(enterprise_id=None, team_id="T_UNKNOWN") is None
+
+
+def test_list_team_ids_returns_every_installed_workspace():
+    supabase = _FakeSupabase()
+    store = SupabaseInstallationStore(supabase)
+    store.save(_installation(team_id="T_A"))
+    store.save(_installation(team_id="T_B"))
+
+    assert sorted(store.list_team_ids()) == ["T_A", "T_B"]
+
+
+def test_list_team_ids_empty_when_nothing_installed():
+    store = SupabaseInstallationStore(_FakeSupabase())
+
+    assert store.list_team_ids() == []
 
 
 def test_two_workspaces_do_not_see_each_other_installations():

@@ -125,6 +125,17 @@ class SupabaseInstallationStore(InstallationStore):
     ) -> None:
         self._delete(team_id)
 
+    def list_team_ids(self) -> list[str]:
+        """All currently-installed team IDs -- used to iterate every active
+        install (e.g. startup backfill in student-org-agent/app.py)."""
+        rows = (
+            self._supabase.table("slack_installations")
+            .select("team_id")
+            .execute()
+            .data
+        )
+        return [row["team_id"] for row in rows]
+
     def _find_row(self, team_id: Optional[str]) -> Optional[dict]:
         if not team_id:
             return None

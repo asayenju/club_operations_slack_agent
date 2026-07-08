@@ -785,11 +785,11 @@ def test_real_time_new_message_ingested(monkeypatch):
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
     # Reset cached monitored channels so the stub takes effect
-    bot._monitored_channels = {"C01": "general"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "general"}}
 
     # Real Slack message events never include channel_name — only the ID.
     event = {"channel": "C01", "user": "U01", "text": "Hello", "ts": "1234567890.000100"}
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert len(ingested) == 1
     assert ingested[0]["text"] == "Hello"
@@ -801,11 +801,11 @@ def test_real_time_unmonitored_channel_skipped(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channels = {"C01": "general"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "general"}}
 
     event = {"channel": "C99", "user": "U01", "text": "Should not ingest",
               "ts": "1234567890.000100"}
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert ingested == []
 
@@ -814,7 +814,7 @@ def test_real_time_message_changed_reupserts(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channels = {"C01": "general"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "general"}}
 
     # Real message_changed events never include channel_name either.
     event = {
@@ -822,7 +822,7 @@ def test_real_time_message_changed_reupserts(monkeypatch):
         "subtype": "message_changed",
         "message": {"user": "U01", "text": "Edited text", "ts": "1234567890.000100"},
     }
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert len(ingested) == 1
     assert ingested[0]["text"] == "Edited text"
@@ -834,10 +834,10 @@ def test_real_time_message_deleted_removes(monkeypatch):
     monkeypatch.setattr(slack_ingestion, "delete_slack_message",
                         lambda ws, ch, ts: deleted.append((ch, ts)))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channels = {"C01": "general"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "general"}}
 
     event = {"channel": "C01", "subtype": "message_deleted", "deleted_ts": "1234567890.000100"}
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert deleted == [("C01", "1234567890.000100")]
 
@@ -846,13 +846,41 @@ def test_real_time_bot_message_not_ingested(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channels = {"C01": "general"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "general"}}
 
     event = {"channel": "C01", "bot_id": "B01", "text": "I am a bot",
               "ts": "1234567890.000100"}
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert ingested == []
+
+
+def test_real_time_ingestion_does_not_leak_across_workspaces(monkeypatch):
+    """Issue #63: monitored-channel cache is keyed per workspace_id (from
+    Bolt's own context, not a static WORKSPACE_ID) -- two workspaces
+    monitoring the same channel ID must not see each other's channel name,
+    and each message must be ingested under its own workspace_id."""
+    ingested = []
+    monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append((ws, msg)))
+    bot = _load_app(monkeypatch, monitored_ids=["C01"])
+    bot._monitored_channels_by_workspace = {
+        "T_A": {"C01": "general-workspace-a"},
+        "T_B": {"C01": "general-workspace-b"},
+    }
+
+    event = {"channel": "C01", "user": "U01", "text": "Hello from A", "ts": "1234567890.000100"}
+    bot.handle_message(event, context={"team_id": "T_A"}, logger=SimpleNamespace(error=print))
+
+    event_b = {"channel": "C01", "user": "U01", "text": "Hello from B", "ts": "1234567890.000200"}
+    bot.handle_message(event_b, context={"team_id": "T_B"}, logger=SimpleNamespace(error=print))
+
+    assert len(ingested) == 2
+    workspace_a, msg_a = ingested[0]
+    workspace_b, msg_b = ingested[1]
+    assert workspace_a == "T_A"
+    assert msg_a["channel_name"] == "general-workspace-a"
+    assert workspace_b == "T_B"
+    assert msg_b["channel_name"] == "general-workspace-b"
 
 
 def test_real_time_channel_name_never_falls_back_to_channel_id(monkeypatch):
@@ -862,10 +890,10 @@ def test_real_time_channel_name_never_falls_back_to_channel_id(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channels = {"C01": "club-announcements"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "club-announcements"}}
 
     event = {"channel": "C01", "user": "U01", "text": "Hello", "ts": "1234567890.000100"}
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert ingested[0]["channel_name"] == "club-announcements"
     assert ingested[0]["channel_name"] != "C01"
