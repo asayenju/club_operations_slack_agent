@@ -1,0 +1,32 @@
+# Fly.io deployment for the Slack-facing service only (issue #62).
+#
+# ingestion-api and drive-sync-worker stay local/private (docker-compose,
+# bound to 127.0.0.1) -- only the Slack OAuth install flow, events, slash
+# commands, and interactivity need a public HTTPS endpoint. This overrides
+# the shared Dockerfile's default CMD (which runs ingestion-api) to run the
+# slack-bot process instead.
+#
+# `fly launch` will regenerate/merge this file interactively on first run --
+# treat this as the starting point, not a file to apply blindly. Replace
+# `app` with the name Fly assigns/you choose.
+
+app = "REPLACE-WITH-YOUR-FLY-APP-NAME"
+primary_region = "iad"
+
+[build]
+
+[processes]
+  app = "python /app/student-org-agent/app.py"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

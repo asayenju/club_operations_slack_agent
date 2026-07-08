@@ -2,7 +2,6 @@ from common.config import IngestionSettings, SlackSettings
 
 
 def test_slack_settings_accepts_supabase_service_key_alias(monkeypatch):
-    monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
     monkeypatch.setenv("SLACK_CLIENT_ID", "client-id")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret")
     monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret")
@@ -27,7 +26,6 @@ def test_ingestion_settings_accepts_supabase_service_role_key_alias(monkeypatch)
 
 
 def test_settings_prefer_service_role_key_when_both_aliases_are_set(monkeypatch):
-    monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
     monkeypatch.setenv("SLACK_CLIENT_ID", "client-id")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret")
     monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret")
