@@ -111,7 +111,7 @@ def test_parse_folder_id_rejects_non_folder_url():
 
 
 def test_scan_folder_is_recursive_and_paginated():
-    gateway = GoogleDriveGateway(service=FakeService())
+    gateway = GoogleDriveGateway("T123", service=FakeService())
 
     items = gateway.scan_folder("root")
 
@@ -125,7 +125,7 @@ def test_scan_folder_is_recursive_and_paginated():
 
 
 def test_scan_folder_excludes_unsupported_files():
-    gateway = GoogleDriveGateway(service=FakeService())
+    gateway = GoogleDriveGateway("T123", service=FakeService())
 
     items = gateway.scan_folder("root")
 

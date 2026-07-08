@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from common.config import get_ingestion_settings
 from ingestion_api.documents_repo import delete_source
 from ingestion_api.drive_gateway import (
     DOC_MIME_TYPE,
@@ -24,7 +23,7 @@ from ingestion_api.ingest_docs import ingest_doc
 from ingestion_api.ingest_sheets import ingest_sheet
 
 
-Ingestor = Callable[[str, str | None], Any]
+Ingestor = Callable[[str, str, str | None], Any]
 DocumentDeleter = Callable[[str, str, str], int]
 
 
@@ -63,12 +62,11 @@ class DriveSyncService:
         self.document_deleter = document_deleter
 
     @classmethod
-    def from_settings(cls) -> "DriveSyncService":
-        settings = get_ingestion_settings()
+    def from_settings(cls, workspace_id: str) -> "DriveSyncService":
         return cls(
-            workspace_id=settings.required_workspace_id,
+            workspace_id=workspace_id,
             registry=SupabaseDriveRegistry(),
-            drive=GoogleDriveGateway(),
+            drive=GoogleDriveGateway(workspace_id),
         )
 
     def connect_folder(
@@ -263,9 +261,9 @@ class DriveSyncService:
 
     def _ingest(self, item: DriveItem) -> None:
         if item.mime_type == DOC_MIME_TYPE:
-            self.doc_ingestor(item.file_id, item.modified_time)
+            self.doc_ingestor(item.file_id, self.workspace_id, item.modified_time)
         elif item.mime_type == SHEET_MIME_TYPE:
-            self.sheet_ingestor(item.file_id, item.modified_time)
+            self.sheet_ingestor(item.file_id, self.workspace_id, item.modified_time)
 
     def _purge_if_unreferenced(self, file: ConnectedFile) -> bool:
         if self.registry.file_reference_count(

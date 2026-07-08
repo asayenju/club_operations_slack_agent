@@ -124,8 +124,8 @@ def build_service():
         workspace_id="T123",
         registry=registry,
         drive=drive,
-        doc_ingestor=lambda file_id, modified_time=None: ingested.append(("doc", file_id)),
-        sheet_ingestor=lambda file_id, modified_time=None: ingested.append(("sheet", file_id)),
+        doc_ingestor=lambda file_id, workspace_id, modified_time=None: ingested.append(("doc", file_id)),
+        sheet_ingestor=lambda file_id, workspace_id, modified_time=None: ingested.append(("sheet", file_id)),
         document_deleter=lambda workspace, source, file_id: deleted.append(
             (source, file_id)
         )
@@ -167,10 +167,10 @@ def test_connect_folder_rolls_back_new_registration_when_ingestion_fails():
         workspace_id="T123",
         registry=registry,
         drive=drive,
-        doc_ingestor=lambda file_id, modified_time=None: (_ for _ in ()).throw(
+        doc_ingestor=lambda file_id, workspace_id, modified_time=None: (_ for _ in ()).throw(
             RuntimeError("embedding unavailable")
         ),
-        sheet_ingestor=lambda file_id, modified_time=None: None,
+        sheet_ingestor=lambda file_id, workspace_id, modified_time=None: None,
         document_deleter=lambda workspace, source, file_id: 0,
     )
 

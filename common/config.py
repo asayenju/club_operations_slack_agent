@@ -1,5 +1,4 @@
 from functools import lru_cache
-from pathlib import Path
 from typing import TypeVar
 
 from pydantic import AliasChoices, Field
@@ -50,7 +49,9 @@ class IngestionSettings(BaseAppSettings):
     supabase_publishable_key: str | None = None
     voyage_api_key: str | None = None
     workspace_id: str | None = None
-    google_token_path: Path = Path("secrets/club_token.json")
+    google_oauth_client_id: str | None = None
+    google_oauth_client_secret: str | None = None
+    public_base_url: str | None = None
     drive_poll_interval_seconds: int = 300
     ingestion_api_key: str | None = None
     drive_sync_admin_user_ids: str | None = None
@@ -79,6 +80,14 @@ class IngestionSettings(BaseAppSettings):
     @property
     def required_workspace_id(self) -> str:
         return self.require(self.workspace_id, "WORKSPACE_ID")
+
+    @property
+    def required_google_oauth_client_id(self) -> str:
+        return self.require(self.google_oauth_client_id, "GOOGLE_OAUTH_CLIENT_ID")
+
+    @property
+    def required_google_oauth_client_secret(self) -> str:
+        return self.require(self.google_oauth_client_secret, "GOOGLE_OAUTH_CLIENT_SECRET")
 
 
 @lru_cache

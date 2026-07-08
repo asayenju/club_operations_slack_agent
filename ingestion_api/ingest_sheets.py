@@ -3,7 +3,6 @@ import re
 from datetime import datetime, timezone
 from typing import Any, TypedDict
 
-from common.config import get_ingestion_settings
 from ingestion_api.documents_repo import replace_source_chunks
 from ingestion_api.embeddings import embed_documents, to_pgvector
 from ingestion_api.google_sheets import fetch_sheet_rows, row_to_text
@@ -64,14 +63,13 @@ def build_chunks(rows: list[dict[str, Any]]) -> list[SheetChunk]:
     return chunks
 
 
-def ingest_sheet(sheet_id: str, modified_time: str | None = None) -> IngestionResult:
+def ingest_sheet(sheet_id: str, workspace_id: str, modified_time: str | None = None) -> IngestionResult:
     """Fully replace a changed Sheet after embeddings are ready."""
     normalized_id = sheet_id.strip()
     if not normalized_id:
         raise ValueError("sheet_id must not be empty")
 
-    workspace_id = get_ingestion_settings().required_workspace_id
-    title, rows = fetch_sheet_rows(normalized_id)
+    title, rows = fetch_sheet_rows(normalized_id, workspace_id)
     chunks = build_chunks(rows)
     vectors = embed_documents([chunk["content"] for chunk in chunks])
     if len(vectors) != len(chunks):

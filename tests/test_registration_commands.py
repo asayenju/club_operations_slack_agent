@@ -38,7 +38,6 @@ def load_bot_module(monkeypatch):
     spec = importlib.util.spec_from_file_location("student_org_agent_register", module_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    monkeypatch.setattr(module, "configured_workspace_id", lambda: "T123")
     return module
 
 

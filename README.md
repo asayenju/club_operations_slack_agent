@@ -215,12 +215,15 @@ and should not be overwritten by future roster imports.
 ## Connected Drive folders
 
 Docs and Sheets are discovered from explicitly connected Drive folders instead
-of scanning every file visible to the club Google account.
+of scanning every file visible to a Google account. Each installed Slack
+workspace connects its **own** Google account (issue #66) — there is no
+single shared club account or local token file anymore.
 
-Before using folder sync, run this migration in the Supabase SQL editor:
+Before using folder sync, run these migrations in the Supabase SQL editor:
 
 ```text
 supabase/migrations/20260623_drive_folder_sync.sql
+supabase/migrations/20260708_workspace_google_credentials.sql
 ```
 
 Set these environment values for the Slack bot, ingestion API, and Drive sync
@@ -231,9 +234,18 @@ SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 VOYAGE_API_KEY=...
 WORKSPACE_ID=...
-GOOGLE_TOKEN_PATH=secrets/club_token.json
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+PUBLIC_BASE_URL=...
 DRIVE_POLL_INTERVAL_SECONDS=300
 ```
+
+`GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` come from a Google Cloud
+OAuth 2.0 **Web application** client (not a Desktop client) with the Docs,
+Drive, and Sheets read-only scopes enabled, and `PUBLIC_BASE_URL` (e.g.
+`https://your-app.fly.dev`, same host as [HTTP mode +
+hosting](#http-mode--hosting-issue-62)) with a redirect URI of
+`{PUBLIC_BASE_URL}/google/oauth_redirect` registered on that client.
 
 `SUPABASE_SERVICE_KEY` is also accepted as an alias for
 `SUPABASE_SERVICE_ROLE_KEY`; when both are set, `SUPABASE_SERVICE_ROLE_KEY`
@@ -245,6 +257,10 @@ Then update or reinstall the Slack app manifest so `/connect-folder` and
 ```text
 /connect-folder https://drive.google.com/drive/folders/<folder_id>
 ```
+
+If this workspace hasn't connected Google Drive yet, `/connect-folder`
+replies with a link to complete Google's consent screen instead of failing —
+run `/connect-folder` again afterward.
 
 In non-development environments, set the Slack users allowed to manage connected
 folders:
@@ -285,15 +301,17 @@ Internal API equivalents are also available:
 curl -X POST http://localhost:8000/drive/connect \
   -H "Content-Type: application/json" \
   -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
-  -d '{"folder":"https://drive.google.com/drive/folders/<folder_id>","user_id":"U123"}'
+  -d '{"folder":"https://drive.google.com/drive/folders/<folder_id>","workspace_id":"T123","user_id":"U123"}'
 
 curl -X POST http://localhost:8000/drive/sync \
-  -H "X-Ingestion-Api-Key: $INGESTION_API_KEY"
+  -H "Content-Type: application/json" \
+  -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
+  -d '{"workspace_id":"T123"}'
 
 curl -X POST http://localhost:8000/drive/disconnect \
   -H "Content-Type: application/json" \
   -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
-  -d '{"folder":"<folder_id>"}'
+  -d '{"folder":"<folder_id>","workspace_id":"T123"}'
 ```
 
 In Docker Compose, the ingestion API is bound to `127.0.0.1` by default. If
@@ -323,21 +341,20 @@ SUPABASE_URL=...
 SUPABASE_SERVICE_KEY=...
 VOYAGE_API_KEY=...
 WORKSPACE_ID=...
-GOOGLE_TOKEN_PATH=secrets/club_token.json
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+PUBLIC_BASE_URL=...
 ```
 
-Never expose `SUPABASE_SERVICE_KEY`, `VOYAGE_API_KEY`, `client_secret.json`, or
-the generated Google token to a browser or commit them to Git.
+Never expose `SUPABASE_SERVICE_KEY`, `VOYAGE_API_KEY`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+or any workspace's stored refresh token to a browser or commit them to Git —
+refresh tokens are encrypted at rest (`APP_ENCRYPTION_KEY`, same mechanism as
+Slack bot tokens) but the Google OAuth client secret itself is not.
 
-Create a Google OAuth Desktop client with the Docs, Drive, and Sheets APIs
-enabled. Download it as `client_secret.json`, sign into the dedicated club
-Google account, and run:
-
-```bash
-python -m tools.google_auth_bootstrap
-```
-
-This writes the reusable OAuth token to `secrets/club_token.json`.
+Docs/Sheets/Drive access is per-workspace (issue #66) via `/connect-folder`'s
+OAuth flow — see [Connected Drive folders](#connected-drive-folders). There is
+no standalone bootstrap script or local token file anymore; every workspace's
+Google credentials live encrypted in `workspace_google_credentials`.
 
 The `documents` table must include `workspace_id`, `source`, `source_id`,
 `chunk_key`, `content`, `content_hash`, `metadata`, `embedding`, `created_at`,

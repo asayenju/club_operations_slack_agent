@@ -45,12 +45,7 @@ def test_ingest_sheet_fully_replaces_existing_rows(monkeypatch):
     ]
     replaced = []
 
-    monkeypatch.setattr(
-        ingest_sheets,
-        "get_ingestion_settings",
-        lambda: SimpleNamespace(required_workspace_id="T123"),
-    )
-    monkeypatch.setattr(ingest_sheets, "fetch_sheet_rows", lambda sheet_id: ("Test Sheet", rows))
+    monkeypatch.setattr(ingest_sheets, "fetch_sheet_rows", lambda sheet_id, workspace_id: ("Test Sheet", rows))
     monkeypatch.setattr(
         ingest_sheets,
         "embed_documents",
@@ -67,7 +62,7 @@ def test_ingest_sheet_fully_replaces_existing_rows(monkeypatch):
         fake_replace,
     )
 
-    result = ingest_sheets.ingest_sheet("sheet-123")
+    result = ingest_sheets.ingest_sheet("sheet-123", "T123")
 
     assert result == {
         "sheet_id": "sheet-123",

@@ -2,11 +2,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from common.config import get_ingestion_settings
+from common.google_credentials_store import get_google_credentials
 
 
 DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
@@ -76,24 +75,14 @@ def parse_folder_id(folder_reference: str) -> str:
     return match.group(1)
 
 
-def get_drive_service() -> Any:
-    token_path = get_ingestion_settings().google_token_path
-    if not token_path.exists():
-        raise FileNotFoundError(
-            f"Google OAuth token not found at {token_path}. "
-            "Run: python -m tools.google_auth_bootstrap"
-        )
-
-    credentials = Credentials.from_authorized_user_file(
-        str(token_path),
-        [DRIVE_READ_SCOPE],
-    )
+def get_drive_service(workspace_id: str) -> Any:
+    credentials = get_google_credentials(workspace_id, [DRIVE_READ_SCOPE])
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
 
 class GoogleDriveGateway:
-    def __init__(self, service: Any | None = None):
-        self.service = service or get_drive_service()
+    def __init__(self, workspace_id: str, service: Any | None = None):
+        self.service = service or get_drive_service(workspace_id)
 
     def get_item(self, file_id: str) -> DriveItem:
         payload = (
