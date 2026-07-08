@@ -48,6 +48,12 @@
         "description": "Ask a question and get an answer from memory",
         "usage_hint": "What is our current budget?",
         "should_escape": false
+      },
+      {
+        "command": "/reconcile-run",
+        "description": "Trigger reconciliation with any topics",
+        "usage_hint": "finance",
+        "should_escape": false
       }
     ]
   },
