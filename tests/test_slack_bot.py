@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from memoryAnswer.service import MemoryAnswer
 from reconciliation.approval import ReconciliationApprovalPolicy
 from reconciliation.models import ProposalStatus, ReconciliationProposal
+from tools.confidence import ConfidenceResult
 
 
 def load_bot_module(monkeypatch):
@@ -377,8 +378,7 @@ def test_handle_ask_command_returns_mocked_answer(monkeypatch):
     service = FakeMemoryAnswerService(
         result=MemoryAnswer(
             answer="We have $500 left in the budget.",
-            sources=["Budget Sheet"],
-            confidence="high",
+            confidence=ConfidenceResult(level="High", reason="Found in a single Google Sheet."),
         )
     )
     monkeypatch.setattr(bot, "MemoryAnswerService", lambda: service)
@@ -393,7 +393,10 @@ def test_handle_ask_command_returns_mocked_answer(monkeypatch):
         {"acked": True},
         {
             "response_type": "ephemeral",
-            "text": "We have $500 left in the budget.\n_Confidence: high_",
+            "text": (
+                "We have $500 left in the budget.\n"
+                "_Confidence: High — Found in a single Google Sheet._"
+            ),
         },
     ]
     assert service.calls == [("What is our budget?", "T123")]
