@@ -508,7 +508,7 @@ def _get_monitored_channels() -> dict[str, str]:
         if _monitored_channels is None:
             try:
                 supabase = _get_supabase()
-                rows = list_monitored_channels(supabase)
+                rows = list_monitored_channels(supabase, configured_workspace_id())
                 _monitored_channels = {r["channel_id"]: r["channel_name"] for r in rows}
             except Exception as exc:
                 print(f"[monitored_channels] failed to load: {exc}")
