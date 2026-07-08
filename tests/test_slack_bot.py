@@ -76,7 +76,7 @@ def allow_reconciliation_approval(bot, monkeypatch, service):
     monkeypatch.setattr(
         bot,
         "build_reconciliation_approval_policy",
-        lambda: ReconciliationApprovalPolicy(
+        lambda workspace_id: ReconciliationApprovalPolicy(
             lead_user_ids=frozenset({"UAPPROVER"}),
             approval_reaction="white_check_mark",
         ),
@@ -96,6 +96,56 @@ def reaction_event(**overrides):
     }
     event.update(overrides)
     return event
+
+
+def test_on_install_success_seeds_default_admin_then_calls_default_success(monkeypatch):
+    """Issue #67: a newly installed workspace gets its installer seeded as
+    admin automatically -- no redeploy or env var edit needed."""
+    bot = load_bot_module(monkeypatch)
+    seeded = []
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            ensure_default_admin=lambda workspace_id, user_id: seeded.append((workspace_id, user_id))
+        ),
+    )
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+
+    default_calls = []
+    args = SimpleNamespace(
+        installation=SimpleNamespace(team_id="T_NEW", user_id="U_INSTALLER"),
+        default=SimpleNamespace(success=lambda a: default_calls.append(a) or "default-success-response"),
+    )
+
+    result = bot._on_install_success(args)
+
+    assert seeded == [("T_NEW", "U_INSTALLER")]
+    assert result == "default-success-response"
+    assert default_calls == [args]
+
+
+def test_on_install_success_still_calls_default_success_if_seeding_fails(monkeypatch):
+    """A DB hiccup while seeding admin defaults shouldn't break the actual
+    Slack install -- the user should still see Slack's success page."""
+    bot = load_bot_module(monkeypatch)
+
+    def _raise(supabase):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(bot, "WorkspaceAdminSettingsStore", _raise)
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+
+    default_calls = []
+    args = SimpleNamespace(
+        installation=SimpleNamespace(team_id="T_NEW", user_id="U_INSTALLER"),
+        default=SimpleNamespace(success=lambda a: default_calls.append(a) or "default-success-response"),
+    )
+
+    result = bot._on_install_success(args)
+
+    assert result == "default-success-response"
+    assert default_calls == [args]
 
 
 def test_run_backfill_iterates_every_installed_workspace(monkeypatch):
@@ -394,6 +444,15 @@ def _stub_drive_connected(bot, monkeypatch):
         lambda supabase: SimpleNamespace(is_connected=lambda workspace_id: True),
     )
     monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                drive_sync_admin_user_ids=None,
+            )
+        ),
+    )
 
 
 def test_handle_connect_folder_command_reports_summary(monkeypatch):
@@ -471,6 +530,15 @@ def test_handle_connect_folder_command_prompts_connection_when_drive_not_connect
         lambda supabase: SimpleNamespace(is_connected=lambda workspace_id: False),
     )
     monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                drive_sync_admin_user_ids=None,
+            )
+        ),
+    )
     monkeypatch.setattr(bot, "build_authorization_url", lambda state: f"https://accounts.google.com/auth?state={state}")
 
     bot.handle_connect_folder_command(
@@ -512,6 +580,36 @@ def test_handle_connect_folder_command_works_for_any_workspace_once_connected(mo
     assert calls == ["root"]
     assert responses[1]["response_type"] == "ephemeral"
     assert "Connected" in responses[1]["text"]
+
+
+def test_admin_check_is_independent_per_workspace(monkeypatch):
+    """Issue #67: one workspace's admin list must not affect another's --
+    replacing the old single deployment-wide DRIVE_SYNC_ADMIN_USER_IDS list."""
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    admin_lists = {"T_A": "U_A_ADMIN", "T_B": "U_B_ADMIN"}
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                drive_sync_admin_user_ids=admin_lists[workspace_id],
+            )
+        ),
+    )
+
+    # U_A_ADMIN is T_A's admin but not T_B's -- must be rejected in T_B.
+    bot.handle_connect_folder_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_B", "user_id": "U_A_ADMIN", "text": "root"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses[-1] == {
+        "response_type": "ephemeral",
+        "text": "You are not allowed to manage connected Drive folders.",
+    }
 
 
 class FakeMemoryAnswerService:
@@ -603,9 +701,16 @@ def test_handle_connect_folder_command_rejects_non_admin(monkeypatch):
     monkeypatch.setattr(
         bot,
         "get_ingestion_settings",
-        lambda: SimpleNamespace(
-            app_env="production",
-            drive_sync_admin_user_ids="U_ALLOWED",
+        lambda: SimpleNamespace(app_env="production"),
+    )
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                drive_sync_admin_user_ids="U_ALLOWED",
+            )
         ),
     )
 
@@ -768,7 +873,7 @@ def test_reconciliation_reaction_accepts_skin_tone_reaction_variant(monkeypatch)
     monkeypatch.setattr(
         bot,
         "build_reconciliation_approval_policy",
-        lambda: ReconciliationApprovalPolicy(
+        lambda workspace_id: ReconciliationApprovalPolicy(
             lead_user_ids=frozenset({"UAPPROVER"}),
             approval_reaction="+1",
         ),
@@ -791,7 +896,7 @@ def test_reconciliation_reaction_skips_lookup_when_approval_unconfigured(monkeyp
     monkeypatch.setattr(
         bot,
         "build_reconciliation_approval_policy",
-        lambda: ReconciliationApprovalPolicy(
+        lambda workspace_id: ReconciliationApprovalPolicy(
             lead_user_ids=frozenset(),
             approval_reaction="white_check_mark",
         ),

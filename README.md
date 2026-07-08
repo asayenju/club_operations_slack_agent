@@ -224,6 +224,7 @@ Before using folder sync, run these migrations in the Supabase SQL editor:
 ```text
 supabase/migrations/20260623_drive_folder_sync.sql
 supabase/migrations/20260708_workspace_google_credentials.sql
+supabase/migrations/20260708_workspace_admin_settings.sql
 ```
 
 Set these environment values for the Slack bot, ingestion API, and Drive sync
@@ -262,12 +263,13 @@ If this workspace hasn't connected Google Drive yet, `/connect-folder`
 replies with a link to complete Google's consent screen instead of failing —
 run `/connect-folder` again afterward.
 
-In non-development environments, set the Slack users allowed to manage connected
-folders:
-
-```text
-DRIVE_SYNC_ADMIN_USER_IDS=U123456789,U987654321
-```
+Who's allowed to manage connected folders is per-workspace (issue #67), not a
+deployment-wide env var — the Slack user who completed the OAuth install is
+seeded as that workspace's default admin automatically. Change it via the
+`workspace_admin_settings` table (`drive_sync_admin_user_ids`, a Postgres
+`text[]`) or `common.workspace_admin_settings.WorkspaceAdminSettingsStore`.
+In development, any user is allowed if a workspace has no admins configured
+yet.
 
 The initial scan recursively walks subfolders and records subfolder membership
 plus supported Google Docs and Sheets. Supported files are dispatched to the
@@ -515,20 +517,19 @@ not provide an explicit expiry timestamp. Run `expire_due(workspace_id)`
 regularly from the reconciliation scheduler or maintenance job to mark overdue
 pending proposals expired before processing late approvals.
 
-Proposal confirmation is controlled by Slack user and reaction configuration:
+Proposal confirmation is controlled by per-workspace user and reaction
+configuration (issue #67, `workspace_admin_settings` table:
+`reconciliation_approval_user_ids`, `reconciliation_approval_reaction`) — not
+a deployment-wide env var. The Slack user who completed the OAuth install is
+seeded as that workspace's default approver automatically, with the reaction
+defaulting to Slack's `white_check_mark` name for the checkmark emoji.
 
-```text
-RECONCILIATION_APPROVAL_USER_IDS=U123456789,U987654321
-RECONCILIATION_APPROVAL_REACTION=white_check_mark
-```
-
-Only configured committee lead Slack user IDs can confirm pending proposals.
-The approval reaction defaults to Slack's `white_check_mark` name for the
-checkmark emoji. Wrong reactions, unconfigured users, missing approval user
-configuration, and proposals that are expired, rejected, superseded, or already
-confirmed are ignored. The Slack app manifest subscribes to `reaction_added` and
-requires `reactions:read`; reinstall or update the app after changing the
-manifest.
+Only that workspace's configured committee lead Slack user IDs can confirm
+its pending proposals. Wrong reactions, unconfigured users, missing approval
+user configuration, and proposals that are expired, rejected, superseded, or
+already confirmed are ignored. The Slack app manifest subscribes to
+`reaction_added` and requires `reactions:read`; reinstall or update the app
+after changing the manifest.
 
 ## Ingestion setup
 
