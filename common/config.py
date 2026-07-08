@@ -54,6 +54,7 @@ class IngestionSettings(BaseAppSettings):
     drive_sync_admin_user_ids: str | None = None
     reconciliation_approval_user_ids: str | None = None
     reconciliation_approval_reaction: str = "white_check_mark"
+    reconciliation_channel_id: str | None = None
     slack_backfill_limit: int = 200
     slack_reconcile_cron_hour: int = 6
 
@@ -77,6 +78,10 @@ class IngestionSettings(BaseAppSettings):
     @property
     def required_workspace_id(self) -> str:
         return self.require(self.workspace_id, "WORKSPACE_ID")
+
+    @property
+    def required_reconciliation_channel_id(self) -> str:
+        return self.require(self.reconciliation_channel_id, "RECONCILIATION_CHANNEL_ID")
 
 
 @lru_cache

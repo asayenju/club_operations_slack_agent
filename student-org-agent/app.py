@@ -29,6 +29,7 @@ from reconciliation.approval import (
     validate_reconciliation_approval,
 )
 from reconciliation.repository import SupabaseReconciliationProposalRepository
+from reconciliation.run import run_reconciliation
 from reconciliation.service import (
     InvalidProposalTransition,
     ProposalNotFound,
@@ -205,6 +206,39 @@ def build_reconciliation_proposal_service() -> ReconciliationProposalService:
 
 def build_reconciliation_approval_policy() -> ReconciliationApprovalPolicy:
     return ReconciliationApprovalPolicy.from_settings(get_ingestion_settings())
+
+
+@app.command("/reconcile-run")
+def handle_reconcile_run_command(ack, command, respond):
+    ack()
+    if not ensure_configured_workspace(command, respond):
+        return
+
+    topic = str(command.get("text", "")).strip()
+    if not topic:
+        respond(response_type="ephemeral", text="Usage: `/reconcile-run <topic>`")
+        return
+
+    settings = get_ingestion_settings()
+    try:
+        proposal = run_reconciliation(
+            workspace_id=configured_workspace_id(),
+            topic=topic,
+            slack_client=app.client,
+            slack_channel_id=settings.required_reconciliation_channel_id,
+            proposal_service=build_reconciliation_proposal_service(),
+        )
+    except Exception:
+        logger.exception("Failed to run reconciliation")
+        respond(response_type="ephemeral", text="Reconciliation run failed.")
+        return
+
+    respond(
+        response_type="ephemeral",
+        text="Reconciliation run posted — no action needed."
+        if proposal is None
+        else "Reconciliation run posted — awaiting confirmation.",
+    )
 
 
 @app.event("reaction_added")
