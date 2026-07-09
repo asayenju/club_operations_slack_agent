@@ -76,6 +76,12 @@ async def lifespan(app: FastAPI):
             """Poll every workspace with a connected Google account (#66) --
             Drive is no longer a single shared account."""
             workspace_ids = WorkspaceGoogleCredentialsStore(_get_supabase()).list_workspace_ids()
+            if not workspace_ids:
+                print(
+                    "[poll] no workspaces have connected Google Drive yet -- "
+                    "run /connect-folder in Slack to connect one"
+                )
+                return
             for workspace_id in workspace_ids:
                 try:
                     DriveSyncService.from_settings(workspace_id).poll_changes()
