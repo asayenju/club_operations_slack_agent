@@ -58,6 +58,7 @@ BOT_SCOPES = [
     "channels:history",
     "chat:write",
     "commands",
+    "groups:history",
     "im:history",
     "reactions:read",
     "search:read.public",

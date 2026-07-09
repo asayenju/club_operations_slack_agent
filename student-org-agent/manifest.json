@@ -67,6 +67,7 @@
         "channels:history",
         "chat:write",
         "commands",
+        "groups:history",
         "im:history",
         "reactions:read",
         "search:read.public"
@@ -80,6 +81,7 @@
         "app_mention",
         "app_uninstalled",
         "message.channels",
+        "message.groups",
         "message.im",
         "reaction_added",
         "tokens_revoked"

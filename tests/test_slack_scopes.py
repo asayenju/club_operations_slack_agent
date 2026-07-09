@@ -13,9 +13,10 @@ class _FakeResponse:
 
 
 class _FakeClient:
-    def __init__(self, auth_error=None, history_error=None):
+    def __init__(self, auth_error=None, history_error=None, needed="channels:history"):
         self.auth_error = auth_error
         self.history_error = history_error
+        self.needed = needed
 
     def auth_test(self):
         if self.auth_error:
@@ -26,7 +27,7 @@ class _FakeClient:
         if self.history_error:
             raise SlackApiError(
                 "history failed",
-                _FakeResponse({"error": self.history_error, "needed": "channels:history"}),
+                _FakeResponse({"error": self.history_error, "needed": self.needed}),
             )
         return {"ok": True, "messages": []}
 
@@ -47,6 +48,14 @@ def test_verify_slack_scopes_raises_on_invalid_auth():
 def test_verify_slack_scopes_raises_on_missing_scope():
     with pytest.raises(SlackScopeError, match="missing a required scope"):
         verify_slack_scopes(_FakeClient(history_error="missing_scope"), sample_channel_id="C01")
+
+
+def test_verify_slack_scopes_missing_private_scope_mentions_channel_membership():
+    with pytest.raises(SlackScopeError, match="groups:history.*added to the channel"):
+        verify_slack_scopes(
+            _FakeClient(history_error="missing_scope", needed="groups:history"),
+            sample_channel_id="G01",
+        )
 
 
 def test_verify_slack_scopes_raises_on_other_history_error():
