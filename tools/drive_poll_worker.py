@@ -25,6 +25,15 @@ def _poll_all_workspaces() -> None:
     shared account."""
     supabase = _get_supabase()
     workspace_ids = WorkspaceGoogleCredentialsStore(supabase).list_workspace_ids()
+    if not workspace_ids:
+        logger.warning(
+            "No workspaces have connected Google Drive yet -- this poll is a "
+            "no-op. If a workspace previously relied on the old shared "
+            "secrets/club_token.json, that stopped being read entirely as of "
+            "issue #66; an admin must run /connect-folder in Slack to "
+            "reconnect it under the new per-workspace OAuth flow."
+        )
+        return
     for workspace_id in workspace_ids:
         try:
             result = DriveSyncService.from_settings(workspace_id).poll_changes()

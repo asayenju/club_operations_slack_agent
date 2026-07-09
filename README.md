@@ -246,6 +246,21 @@ supabase/migrations/20260623_drive_folder_sync.sql
 supabase/migrations/20260708_workspace_google_credentials.sql
 ```
 
+**Upgrading a workspace that already had Drive connected via the old shared
+`secrets/club_token.json`?** That file stops being read entirely after this
+change, and — unlike the Slack bot token — **there is no way to seed its
+refresh token into the new table.** Google refresh tokens are bound to the
+OAuth client that issued them; the old token was issued to a Desktop client,
+this feature registers a different Web application client
+(`GOOGLE_OAUTH_CLIENT_ID`), so the old token would fail the moment the app
+tried to refresh it. The only fix is re-running `/connect-folder` in that
+workspace to go through the new OAuth flow and get a fresh token. Until an
+admin does that, Drive/Docs/Sheets sync for that workspace is inactive — the
+background poll loop and `tools/drive_poll_worker.py` both log a warning
+every cycle when zero workspaces are connected, rather than silently doing
+nothing, so this is visible in the logs instead of only discovered by
+noticing ingestion stopped.
+
 Set these environment values for the Slack bot, ingestion API, and Drive sync
 worker:
 
