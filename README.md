@@ -185,10 +185,14 @@ fly deploy
 publicly — `ingestion-api` and `drive-sync-worker` stay local/private via
 `docker-compose.yml`, matching how `ingestion-api` was already
 `127.0.0.1`-only. Once deployed, update `student-org-agent/manifest.json`'s
-`YOUR_PUBLIC_DOMAIN` placeholders (`oauth_config.redirect_urls`,
-`settings.event_subscriptions.request_url`,
-`settings.interactivity.request_url`) with the real `*.fly.dev` hostname (or
-your own domain), then update/reinstall the Slack app manifest.
+`YOUR_PUBLIC_DOMAIN` placeholders with the real `*.fly.dev` hostname (or your
+own domain), then update/reinstall the Slack app manifest. That's every
+`oauth_config.redirect_urls` entry, `settings.event_subscriptions.request_url`,
+`settings.interactivity.request_url`, **and each entry's own `url` field
+under `features.slash_commands`** — a slash command's request URL is a
+separate field from the other two per Slack's manifest schema; missing it
+means that command silently does nothing when invoked, even though events
+and interactivity work fine.
 
 ## Slack-to-Google account registration
 
