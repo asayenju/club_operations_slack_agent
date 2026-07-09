@@ -306,6 +306,24 @@ seeded as that workspace's default admin automatically. Change it via the
 In development, any user is allowed if a workspace has no admins configured
 yet.
 
+**Upgrading a workspace that was already installed before this feature
+shipped?** It gets no row automatically — that only happens for new installs
+going forward, via the OAuth success callback — and there's no fallback to
+the old env vars (they were deleted from config entirely). In non-development
+environments this breaks `/connect-folder` with a visible error, and breaks
+reconciliation reaction approval **silently** (reaction events have no
+response channel to show an error in). Run this once, for every
+already-installed workspace, to backfill each one's installer as its default
+admin — the same thing the OAuth callback does for new installs, applied
+retroactively:
+
+```bash
+python -m tools.backfill_workspace_admin_settings
+```
+
+A no-op for any workspace that already has admin settings, so it's safe to
+re-run.
+
 The initial scan recursively walks subfolders and records subfolder membership
 plus supported Google Docs and Sheets. Supported files are dispatched to the
 existing heading-based Docs ingestor or the full-rewrite Sheets ingestor.
