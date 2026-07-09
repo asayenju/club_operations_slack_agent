@@ -166,8 +166,8 @@ def test_ingestion_api_accepts_configured_api_key(monkeypatch):
 
 def test_slack_backfill_endpoint_accepts_request(monkeypatch):
     monkeypatch.setattr(main, "verify_slack_scopes", lambda *a, **k: None)
-    monkeypatch.setattr(main, "list_monitored_channels", lambda supabase: [])
-    monkeypatch.setattr(slack_ingestion, "list_monitored_channels", lambda supabase: [])
+    monkeypatch.setattr(main, "list_monitored_channels", lambda supabase, workspace_id: [])
+    monkeypatch.setattr(slack_ingestion, "list_monitored_channels", lambda supabase, workspace_id: [])
     client = build_client(monkeypatch)
 
     with client:
@@ -179,7 +179,7 @@ def test_slack_backfill_endpoint_accepts_request(monkeypatch):
 
 def test_lifespan_registers_daily_reconcile_job(monkeypatch):
     monkeypatch.setattr(main, "verify_slack_scopes", lambda *a, **k: None)
-    monkeypatch.setattr(main, "list_monitored_channels", lambda supabase: [])
+    monkeypatch.setattr(main, "list_monitored_channels", lambda supabase, workspace_id: [])
     client = build_client(monkeypatch)
 
     with client:
@@ -193,7 +193,7 @@ def test_lifespan_fails_startup_when_slack_scopes_invalid(monkeypatch):
         raise SlackScopeError("missing a required scope")
 
     monkeypatch.setattr(main, "verify_slack_scopes", raise_scope_error)
-    monkeypatch.setattr(main, "list_monitored_channels", lambda supabase: [])
+    monkeypatch.setattr(main, "list_monitored_channels", lambda supabase, workspace_id: [])
     client = build_client(monkeypatch)
 
     with pytest.raises(SlackScopeError):
