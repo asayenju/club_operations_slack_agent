@@ -414,7 +414,15 @@ def ensure_drive_connected(command, respond) -> bool:
     if store.is_connected(workspace_id):
         return True
     state = f"{workspace_id}|{command.get('user_id', '')}"
-    url = build_authorization_url(state)
+    try:
+        url = build_authorization_url(state)
+    except Exception:
+        logger.exception("Failed to build Google authorization URL")
+        respond(
+            response_type="ephemeral",
+            text="I couldn't start the Google Drive connection right now.",
+        )
+        return False
     respond(
         response_type="ephemeral",
         text=f"Connect Google Drive for this workspace first: {url}",

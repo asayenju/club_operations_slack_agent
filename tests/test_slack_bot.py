@@ -557,6 +557,48 @@ def test_handle_connect_folder_command_prompts_connection_when_drive_not_connect
     ]
 
 
+def test_handle_connect_folder_command_reports_failure_when_google_oauth_misconfigured(monkeypatch):
+    """GOOGLE_OAUTH_CLIENT_ID/SECRET missing (or any other failure building
+    the authorization URL) must give an ephemeral error, not crash the
+    whole command handler uncaught."""
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceGoogleCredentialsStore",
+        lambda supabase: SimpleNamespace(is_connected=lambda workspace_id: False),
+    )
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                drive_sync_admin_user_ids=None,
+            )
+        ),
+    )
+
+    def _raise(state):
+        raise RuntimeError("GOOGLE_OAUTH_CLIENT_ID must be configured")
+
+    monkeypatch.setattr(bot, "build_authorization_url", _raise)
+
+    bot.handle_connect_folder_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_ANY_WORKSPACE", "text": "root", "user_id": "U1"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "I couldn't start the Google Drive connection right now.",
+        },
+    ]
+
+
 def test_handle_connect_folder_command_works_for_any_workspace_once_connected(monkeypatch):
     """A workspace other than whatever used to be the single configured one
     now works fine, as long as its own Drive is connected."""
