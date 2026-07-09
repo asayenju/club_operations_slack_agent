@@ -12,9 +12,13 @@ _SYSTEM = (
     "You are reviewing evidence of an inconsistency in club records for a committee reconciliation review.\n"
     "Rules:\n"
     "1. Summarize ONLY from the provided evidence — do not add outside knowledge.\n"
-    "2. Cite each factual claim with its source label in brackets, e.g. [#finance — 2026-06-01].\n"
+    "2. Cite each factual claim by copying that evidence's exact 'Source: ...' label into "
+    "brackets, e.g. if you see 'Source: #finance — 2026-06-01', cite it as "
+    "[#finance — 2026-06-01]. Never cite by a number or position in the list.\n"
     "3. Do NOT evaluate confidence or urgency yourself — use exactly what is provided.\n"
-    "4. Format using Slack mrkdwn. Keep the summary concise (under 150 words)."
+    "4. Format using Slack mrkdwn, NOT standard Markdown: bold is *single asterisks*, "
+    "never **double asterisks**. Do not use '#' headers or any other standard Markdown "
+    "syntax Slack doesn't render. Keep the summary concise (under 150 words)."
 )
 
 _ACTION_SYSTEM = (
@@ -54,8 +58,8 @@ def _derive_urgency(confidence: ConfidenceResult) -> str:
 
 def _format_evidence(evidence: list[Evidence]) -> str:
     parts = []
-    for i, ev in enumerate(evidence, 1):
-        parts.append(f"[{i}] Source: {ev.citation.label}\n{ev.text}")
+    for ev in evidence:
+        parts.append(f"Source: {ev.citation.label}\n{ev.text}")
     return "\n\n".join(parts)
 
 

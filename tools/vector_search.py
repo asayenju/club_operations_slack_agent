@@ -62,7 +62,7 @@ KNOWLEDGE_SEARCH_TOOL = {
 }
 
 
-DEFAULT_MIN_SIMILARITY = 0.70  # aligns with MIN_SIMILARITY in scripts/eval_retrieval_k.py
+DEFAULT_MIN_SIMILARITY = 0.50  # aligns with MIN_SIMILARITY in scripts/eval_retrieval_k.py
 
 
 class DocumentSearchError(RuntimeError):
