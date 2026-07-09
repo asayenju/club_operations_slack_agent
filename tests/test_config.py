@@ -2,6 +2,10 @@ from common.config import IngestionSettings, SlackSettings
 
 
 def test_slack_settings_accepts_supabase_service_key_alias(monkeypatch):
+    # Deliberately absent: this test proves the alias fallback works when
+    # the primary name isn't set, so it can't rely on ambient environment
+    # state (e.g. conftest.py's test defaults) leaving it unset by accident.
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
     monkeypatch.setenv("SLACK_CLIENT_ID", "client-id")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret")
     monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret")
