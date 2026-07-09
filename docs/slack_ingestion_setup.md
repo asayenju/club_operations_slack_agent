@@ -17,6 +17,20 @@ values ('C0123456789', 'general', 200);
 Set `enabled = false` to stop ingesting a channel without deleting its row
 (and its resume/reconciliation state).
 
+## Channel types and Slack access
+
+Slack ingestion supports explicitly monitored public channels and explicitly
+monitored private channels. A channel being present in `monitored_channels`
+does not grant Slack access by itself:
+
+- Public channels must be visible to the installed app.
+- Private channels must have the bot invited as a member before backfill or
+  real-time events can work.
+
+This ingestion setup does not ingest arbitrary private channels, group DMs, or
+member DMs just because the app has broad scopes. It only processes channels
+listed in `monitored_channels`.
+
 ## Required Slack scopes
 
 Of the full bot manifest (`student-org-agent/manifest.json`, which also grants
@@ -25,24 +39,28 @@ Slack ingestion are:
 
 - `channels:history` — read public channel history (and thread replies, which
   use the same scope; Slack has no separate scope for threads).
-- `im:history` — read DM history.
+- `groups:history` — read private channel history for private channels the bot
+  has been added to.
 
-Event subscriptions: `message.channels` (public channels) and `message.im`
-(DMs).
+Event subscriptions relevant to Slack ingestion:
 
-**Private channels are not supported today.** The manifest does not include
-`groups:history` or the `message.groups` event subscription, so a channel
-added to `monitored_channels` that the bot can only access as a private
-channel will fail backfill with a `missing_scope` error and will never
-receive real-time events. To add private-channel support: add `groups:history`
-to the bot's OAuth scopes and `message.groups` to its event subscriptions in
-the manifest, then reinstall the app to the workspace.
+- `message.channels` — new and changed messages in public channels.
+- `message.groups` — new and changed messages in private channels where the
+  bot is present.
 
 Run `common.slack_scopes.verify_slack_scopes(client, sample_channel_id=...)`
 against a real monitored channel once after granting scopes (and after any
 scope change) to confirm the bot token actually has access before relying on
 backfill against real data. A `missing_scope` error there means the Slack app
-needs the scope added and the app reinstalled to the workspace.
+needs the scope added and the app reinstalled to the workspace. For private
+channels, also verify the bot has been invited to that channel; Slack will not
+let the bot read private-channel history merely because the channel ID exists
+in Supabase.
+
+After changing OAuth scopes or event subscriptions in
+`student-org-agent/manifest.json`, update or reinstall the Slack app in the
+workspace before testing. Existing bot tokens do not automatically gain newly
+declared scopes until Slack applies the app update.
 
 ## Known risks
 

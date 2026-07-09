@@ -58,6 +58,7 @@
         "channels:history",
         "chat:write",
         "commands",
+        "groups:history",
         "im:history",
         "reactions:read",
         "search:read.public"
@@ -69,6 +70,7 @@
       "bot_events": [
         "app_mention",
         "message.channels",
+        "message.groups",
         "message.im",
         "reaction_added"
       ]
