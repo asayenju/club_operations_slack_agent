@@ -7,13 +7,23 @@
 alter table public.monitored_channels
   add column if not exists workspace_id text;
 
--- Backfill any pre-existing single-tenant rows with a sentinel so the
--- NOT NULL + primary key changes below never fail against real data.
--- Replace 'legacy-unscoped' with the real workspace_id by hand if you have
--- existing rows from before multi-tenancy.
-update public.monitored_channels
-set workspace_id = 'legacy-unscoped'
-where workspace_id is null;
+-- Deliberately does NOT auto-backfill with a placeholder like
+-- 'legacy-unscoped' -- every application query filters by the real
+-- workspace_id (e.g. your Slack team ID), so a placeholder would make
+-- every pre-existing channel invisible to the app: backfill/monitoring
+-- would silently stop processing anything, with no error anywhere. Fail
+-- loudly instead, before the NOT NULL/primary key changes below lock this
+-- in, so this can't ship unnoticed the way a placeholder default did.
+do $$
+begin
+  if exists (select 1 from public.monitored_channels where workspace_id is null) then
+    raise exception
+      'monitored_channels has rows with no workspace_id. Run this first '
+      '(replace <YOUR_WORKSPACE_ID> with your real Slack team ID -- the '
+      'same value as your WORKSPACE_ID env var), then re-run this migration: '
+      'update public.monitored_channels set workspace_id = ''<YOUR_WORKSPACE_ID>'' where workspace_id is null;';
+  end if;
+end $$;
 
 alter table public.monitored_channels
   alter column workspace_id set not null;
