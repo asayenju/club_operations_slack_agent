@@ -106,6 +106,22 @@ Run this migration before installing into any workspace:
 supabase/migrations/20260708_slack_installations.sql
 ```
 
+**Upgrading a workspace that's already running on the old static
+`SLACK_BOT_TOKEN`?** The moment this ships, that env var stops being read at
+all — the bot and ingestion API lose their token entirely, and the only
+normal recovery is completing `/slack/install` again, which isn't reachable
+from outside the host until real public hosting exists (see [HTTP mode +
+hosting](#http-mode--hosting-issue-62)). Avoid that gap by seeding the
+existing token into `slack_installations` directly, before or during that
+deploy:
+
+```bash
+SLACK_BOT_TOKEN=xoxb-your-existing-token python -m tools.seed_slack_installation
+```
+
+This calls `auth.test` with that token to find the workspace's `team_id` and
+writes one encrypted row — no OAuth flow or public endpoint required.
+
 Required `.env` values:
 
 ```text

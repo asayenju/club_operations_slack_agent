@@ -27,7 +27,6 @@ class SupabaseInstallationStore(InstallationStore):
         return self._logger
 
     def save(self, installation: Installation) -> None:
-        self.save_bot(installation.to_bot())
         raw = installation.to_dict()
         raw["bot_token"] = encrypt(raw["bot_token"]) if raw.get("bot_token") else None
         row = {
