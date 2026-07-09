@@ -17,37 +17,43 @@
         "command": "/decide",
         "description": "Record a club decision",
         "usage_hint": "We approved the spring budget.",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/connect-folder",
         "description": "Connect a Google Drive folder for ingestion",
         "usage_hint": "https://drive.google.com/drive/folders/...",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/disconnect-folder",
         "description": "Disconnect a Google Drive folder",
         "usage_hint": "https://drive.google.com/drive/folders/...",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/register",
         "description": "Link your Slack account to a Google account",
         "usage_hint": "you@example.com",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/unregister",
         "description": "Remove your linked Google account",
         "usage_hint": "",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/ask",
         "description": "Ask a question and get an answer from memory",
         "usage_hint": "What is our current budget?",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       }
     ]
   },

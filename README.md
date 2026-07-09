@@ -107,6 +107,22 @@ Run this migration before installing into any workspace:
 supabase/migrations/20260708_slack_installations.sql
 ```
 
+**Upgrading a workspace that's already running on the old static
+`SLACK_BOT_TOKEN`?** The moment this ships, that env var stops being read at
+all — the bot and ingestion API lose their token entirely, and the only
+normal recovery is completing `/slack/install` again, which isn't reachable
+from outside the host until real public hosting exists (see [HTTP mode +
+hosting](#http-mode--hosting-issue-62)). Avoid that gap by seeding the
+existing token into `slack_installations` directly, before or during that
+deploy:
+
+```bash
+SLACK_BOT_TOKEN=xoxb-your-existing-token python -m tools.seed_slack_installation
+```
+
+This calls `auth.test` with that token to find the workspace's `team_id` and
+writes one encrypted row — no OAuth flow or public endpoint required.
+
 Required `.env` values:
 
 ```text
@@ -162,10 +178,14 @@ fly deploy
 publicly — `ingestion-api` and `drive-sync-worker` stay local/private via
 `docker-compose.yml`, matching how `ingestion-api` was already
 `127.0.0.1`-only. Once deployed, update `student-org-agent/manifest.json`'s
-`YOUR_PUBLIC_DOMAIN` placeholders (`oauth_config.redirect_urls`,
-`settings.event_subscriptions.request_url`,
-`settings.interactivity.request_url`) with the real `*.fly.dev` hostname (or
-your own domain), then update/reinstall the Slack app manifest.
+`YOUR_PUBLIC_DOMAIN` placeholders with the real `*.fly.dev` hostname (or your
+own domain), then update/reinstall the Slack app manifest. That's every
+`oauth_config.redirect_urls` entry, `settings.event_subscriptions.request_url`,
+`settings.interactivity.request_url`, **and each entry's own `url` field
+under `features.slash_commands`** — a slash command's request URL is a
+separate field from the other two per Slack's manifest schema; missing it
+means that command silently does nothing when invoked, even though events
+and interactivity work fine.
 
 ## Slack-to-Google account registration
 
