@@ -64,7 +64,7 @@ def _run_slack_reconcile() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    channels = list_monitored_channels(_get_supabase())
+    channels = list_monitored_channels(_get_supabase(), settings.required_workspace_id)
     sample_channel_id = channels[0]["channel_id"] if channels else None
     verify_slack_scopes(_get_slack_client(), sample_channel_id=sample_channel_id)
 

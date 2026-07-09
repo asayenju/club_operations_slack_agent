@@ -613,7 +613,7 @@ def test_run_channel_backfill_isolates_one_channel_failure(monkeypatch, capsys):
     monkeypatch.setattr(slack_ingestion, "backfill_channel", fake_backfill_channel)
     monkeypatch.setattr(
         slack_ingestion, "list_monitored_channels",
-        lambda sb: [_channel("C_BAD", "bad-channel"), _channel("C_GOOD", "good-channel")],
+        lambda sb, workspace_id: [_channel("C_BAD", "bad-channel"), _channel("C_GOOD", "good-channel")],
     )
 
     slack_ingestion.run_channel_backfill(object(), object(), "T123")
@@ -633,7 +633,7 @@ def test_run_channel_backfill_decides_full_walk_per_channel(monkeypatch):
     monkeypatch.setattr(slack_ingestion, "backfill_channel", fake_backfill_channel)
     monkeypatch.setattr(
         slack_ingestion, "list_monitored_channels",
-        lambda sb: [
+        lambda sb, workspace_id: [
             _channel("C_DONE", "done", initial_backfill_complete=True),
             _channel("C_NOT_DONE", "not-done", initial_backfill_complete=False),
         ],
@@ -654,12 +654,88 @@ def test_run_channel_backfill_force_full_walk_overrides_per_channel_state(monkey
     monkeypatch.setattr(slack_ingestion, "backfill_channel", fake_backfill_channel)
     monkeypatch.setattr(
         slack_ingestion, "list_monitored_channels",
-        lambda sb: [_channel("C_NOT_DONE", "not-done", initial_backfill_complete=False)],
+        lambda sb, workspace_id: [_channel("C_NOT_DONE", "not-done", initial_backfill_complete=False)],
     )
 
     slack_ingestion.run_channel_backfill(object(), object(), "T123", force_full_walk=True)
 
     assert seen_full_walk == {"C_NOT_DONE": True}
+
+
+# ---------------------------------------------------------------------------
+# Issue #65 — monitored_channels workspace scoping
+# ---------------------------------------------------------------------------
+
+class _FakeMonitoredChannelsTable:
+    """Mimics the Supabase query builder chain closely enough to prove
+    list_monitored_channels/_update_channel_progress filter by workspace_id
+    rather than returning/touching every workspace's rows."""
+
+    def __init__(self, rows):
+        self._rows = rows
+        self._filters: dict = {}
+        self._pending_update: dict | None = None
+        self.update_calls: list[dict] = []
+
+    def select(self, *_args):
+        return self
+
+    def update(self, fields):
+        self._pending_update = fields
+        return self
+
+    def eq(self, key, value):
+        self._filters[key] = value
+        return self
+
+    def execute(self):
+        if self._pending_update is not None:
+            matches = [
+                r for r in self._rows
+                if all(r.get(k) == v for k, v in self._filters.items())
+            ]
+            for row in matches:
+                row.update(self._pending_update)
+                self.update_calls.append({**self._filters, **self._pending_update})
+            return SimpleNamespace(data=matches)
+        matches = [r for r in self._rows if all(r.get(k) == v for k, v in self._filters.items())]
+        return SimpleNamespace(data=matches)
+
+
+class _FakeMultiWorkspaceSupabase:
+    def __init__(self, rows):
+        self._rows = rows
+        self.last_table: _FakeMonitoredChannelsTable | None = None
+
+    def table(self, name):
+        assert name == "monitored_channels"
+        self.last_table = _FakeMonitoredChannelsTable(self._rows)
+        return self.last_table
+
+
+def test_list_monitored_channels_only_returns_the_requested_workspace():
+    rows = [
+        {"workspace_id": "T_A", "channel_id": "C01", "channel_name": "general", "enabled": True},
+        {"workspace_id": "T_B", "channel_id": "C01", "channel_name": "random", "enabled": True},
+    ]
+    supabase = _FakeMultiWorkspaceSupabase(rows)
+
+    result = slack_ingestion.list_monitored_channels(supabase, "T_A")
+
+    assert [r["channel_name"] for r in result] == ["general"]
+
+
+def test_update_channel_progress_only_touches_the_requested_workspace():
+    rows = [
+        {"workspace_id": "T_A", "channel_id": "C01", "oldest_ts_backfilled": None},
+        {"workspace_id": "T_B", "channel_id": "C01", "oldest_ts_backfilled": None},
+    ]
+    supabase = _FakeMultiWorkspaceSupabase(rows)
+
+    slack_ingestion._update_channel_progress(supabase, "T_A", "C01", oldest_ts_backfilled="100.0")
+
+    assert rows[0]["oldest_ts_backfilled"] == "100.0"
+    assert rows[1]["oldest_ts_backfilled"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -690,7 +766,7 @@ def _load_app(monkeypatch, monitored_ids=("C01",)):
 
     # Patch slack_ingestion functions before exec so the module picks them up
     monkeypatch.setattr(slack_ingestion, "list_monitored_channels",
-                        lambda sb: [{"channel_id": cid, "channel_name": cid} for cid in monitored_ids])
+                        lambda sb, workspace_id: [{"channel_id": cid, "channel_name": cid} for cid in monitored_ids])
 
     spec.loader.exec_module(module)
     return module

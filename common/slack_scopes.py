@@ -36,6 +36,8 @@ def verify_slack_scopes(client: WebClient, sample_channel_id: str | None = None)
             raise SlackScopeError(
                 f"Bot token is missing a required scope ({needed}). "
                 f"Grant {' and '.join(REQUIRED_HISTORY_SCOPES)} in the Slack app config "
-                "and reinstall the app to the workspace."
+                "and reinstall the app to the workspace. For private channels, also "
+                "confirm the bot has been added to the channel before testing history "
+                "or real-time ingestion."
             ) from exc
         raise SlackScopeError(f"Slack conversations.history check failed: {error}") from exc
