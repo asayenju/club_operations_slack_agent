@@ -46,10 +46,15 @@ def test_oauth_redirect_saves_credentials_for_the_workspace_in_state(monkeypatch
             )
         ),
     )
+    monkeypatch.setattr(
+        module,
+        "GoogleOAuthStateStore",
+        lambda supabase: SimpleNamespace(consume=lambda state: ("T123", "U456")),
+    )
     monkeypatch.setattr(module, "_get_supabase", lambda: SimpleNamespace())
     client = TestClient(module.http_app)
 
-    response = client.get("/google/oauth_redirect", params={"code": "auth-code", "state": "T123|U456"})
+    response = client.get("/google/oauth_redirect", params={"code": "auth-code", "state": "opaque-test-token"})
 
     assert response.status_code == 200
     assert saved == [("T123", "refresh-secret", "U456")]
@@ -81,8 +86,14 @@ def test_oauth_redirect_returns_502_when_token_exchange_fails(monkeypatch):
         raise RuntimeError("token exchange failed")
 
     monkeypatch.setattr(module, "exchange_code_for_refresh_token", _raise)
+    monkeypatch.setattr(
+        module,
+        "GoogleOAuthStateStore",
+        lambda supabase: SimpleNamespace(consume=lambda state: ("T123", "U456")),
+    )
+    monkeypatch.setattr(module, "_get_supabase", lambda: SimpleNamespace())
     client = TestClient(module.http_app)
 
-    response = client.get("/google/oauth_redirect", params={"code": "auth-code", "state": "T123|U456"})
+    response = client.get("/google/oauth_redirect", params={"code": "auth-code", "state": "opaque-test-token"})
 
     assert response.status_code == 502

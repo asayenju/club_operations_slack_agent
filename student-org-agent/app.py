@@ -13,6 +13,7 @@ from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings, get_slack_settings
 from common.google_credentials_store import WorkspaceGoogleCredentialsStore
+from common.google_oauth_state_store import GoogleOAuthStateStore
 from common.google_oauth_flow import (
     GOOGLE_DRIVE_SCOPES,
     build_authorization_url,
@@ -411,11 +412,12 @@ def ensure_drive_connected(command, respond) -> bool:
     OAuth flow yet, send its admin a connection link instead of failing
     deeper inside DriveSyncService."""
     workspace_id = command["team_id"]
-    store = WorkspaceGoogleCredentialsStore(_get_supabase())
+    supabase = _get_supabase()
+    store = WorkspaceGoogleCredentialsStore(supabase)
     if store.is_connected(workspace_id):
         return True
-    state = f"{workspace_id}|{command.get('user_id', '')}"
     try:
+        state = GoogleOAuthStateStore(supabase).create(workspace_id, command.get("user_id"))
         url = build_authorization_url(state)
     except Exception:
         logger.exception("Failed to build Google authorization URL")
@@ -681,8 +683,10 @@ async def health():
 #
 # Mirrors the Slack OAuth install flow above: one registered Google OAuth
 # client shared by the whole app, each workspace's admin completes their own
-# consent. `state` carries "{team_id}|{user_id}" through the redirect so the
-# callback knows which workspace (and who) to credit the connection to.
+# consent. `state` is an unguessable, single-use token issued by
+# GoogleOAuthStateStore.create() and redeemed via .consume() below -- the
+# callback never trusts client-supplied team_id/user_id directly (issue #74
+# review, Aman: a plain "{team_id}|{user_id}" state was forgeable).
 # ---------------------------------------------------------------------------
 
 @http_app.get("/google/oauth_redirect")
@@ -696,9 +700,20 @@ async def google_oauth_redirect(request: Request):
 
     code = params.get("code")
     state = params.get("state") or ""
-    workspace_id, _, user_id = state.partition("|")
-    if not code or not workspace_id:
-        return PlainTextResponse("Missing code or workspace in callback.", status_code=400)
+    if not code or not state:
+        return PlainTextResponse("Missing code or state in callback.", status_code=400)
+
+    supabase = _get_supabase()
+    consumed = GoogleOAuthStateStore(supabase).consume(state)
+    if consumed is None:
+        # Covers unknown, forged, expired, and already-used state tokens
+        # alike -- the caller doesn't get to distinguish which, since that
+        # itself would leak information to whoever is probing this endpoint.
+        return PlainTextResponse(
+            "This connection link is invalid, expired, or already used. Run /connect-folder again.",
+            status_code=400,
+        )
+    workspace_id, user_id = consumed
 
     try:
         refresh_token = exchange_code_for_refresh_token(code)
@@ -709,7 +724,7 @@ async def google_oauth_redirect(request: Request):
             status_code=502,
         )
 
-    store = WorkspaceGoogleCredentialsStore(_get_supabase())
+    store = WorkspaceGoogleCredentialsStore(supabase)
     store.save(
         workspace_id,
         refresh_token,

@@ -539,6 +539,11 @@ def test_handle_connect_folder_command_prompts_connection_when_drive_not_connect
             )
         ),
     )
+    monkeypatch.setattr(
+        bot,
+        "GoogleOAuthStateStore",
+        lambda supabase: SimpleNamespace(create=lambda workspace_id, user_id, **kwargs: "opaque-test-token"),
+    )
     monkeypatch.setattr(bot, "build_authorization_url", lambda state: f"https://accounts.google.com/auth?state={state}")
 
     bot.handle_connect_folder_command(
@@ -552,7 +557,7 @@ def test_handle_connect_folder_command_prompts_connection_when_drive_not_connect
         {
             "response_type": "ephemeral",
             "text": "Connect Google Drive for this workspace first: "
-                    "https://accounts.google.com/auth?state=T_ANY_WORKSPACE|U1",
+                    "https://accounts.google.com/auth?state=opaque-test-token",
         },
     ]
 
