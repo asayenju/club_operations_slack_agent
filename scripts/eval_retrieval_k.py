@@ -48,9 +48,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from common.config import get_ingestion_settings
 from ingestion_api.documents_repo import match_documents
 from ingestion_api.embeddings import embed_documents
+from tools.vector_search import DEFAULT_MIN_SIMILARITY
 
 K_VALUES = [3, 5, 10, 20]
-MIN_SIMILARITY = 0.70  # threshold for no-evidence queries
+MIN_SIMILARITY = DEFAULT_MIN_SIMILARITY  # threshold for no-evidence queries, kept in sync with production
 
 _TOOL_CONFIG = {
     "decide": {

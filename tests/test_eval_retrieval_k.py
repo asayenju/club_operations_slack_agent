@@ -213,7 +213,10 @@ def _no_evidence_passed(results: list[dict]) -> bool:
 
 
 def test_no_evidence_passes_when_best_similarity_below_threshold():
-    results = [{"similarity": 0.40}, {"similarity": 0.55}]
+    results = [
+        {"similarity": MIN_SIMILARITY - 0.10},
+        {"similarity": MIN_SIMILARITY - 0.05},
+    ]
     assert _no_evidence_passed(results) is True
 
 
@@ -223,7 +226,7 @@ def test_no_evidence_fails_when_best_similarity_at_or_above_threshold():
 
 
 def test_no_evidence_passes_when_results_empty():
-    # empty → default=0.0 → 0.0 < 0.70 → PASS
+    # empty → default=0.0 → 0.0 < MIN_SIMILARITY → PASS
     assert _no_evidence_passed([]) is True
 
 
