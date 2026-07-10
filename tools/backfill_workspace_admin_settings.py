@@ -11,10 +11,13 @@ config entirely. Without a row: /connect-folder breaks with a visible
 reaction approval breaks silently (no error surfaced anywhere, since Slack
 reaction events have no response channel).
 
-This mirrors ensure_default_admin's logic exactly, applied retroactively:
-for every already-installed workspace with no admin settings row yet, seed
-both admin lists with that workspace's installer (slack_installations.
-installed_by_user_id). A no-op for any workspace that already has settings.
+For every already-installed workspace, seed the installer (slack_installations.
+installed_by_user_id) into whichever of drive_sync_admin_user_ids /
+reconciliation_approval_user_ids is still unset -- not just workspaces with
+no settings row at all. A workspace that already has both fields configured
+is left untouched; a workspace with only one of the two set (e.g. an admin
+ran set_drive_sync_admins() by hand) gets just the missing field backfilled,
+instead of being skipped entirely.
 
 Usage:
     python -m tools.backfill_workspace_admin_settings
@@ -42,19 +45,17 @@ def main() -> None:
     for row in rows:
         team_id = row["team_id"]
         installer = row.get("installed_by_user_id")
-        already_configured = store.get(team_id).drive_sync_admin_user_ids is not None
-        if already_configured:
-            skipped += 1
-            continue
         if not installer:
             print(f"workspace {team_id!r} has no installed_by_user_id on record -- skipping, seed it manually")
             skipped += 1
             continue
-        store.ensure_default_admin(team_id, installer)
-        seeded += 1
-        print(f"seeded admin settings for workspace {team_id!r} (installer {installer!r})")
+        if store.backfill_missing_defaults(team_id, installer):
+            seeded += 1
+            print(f"seeded missing admin settings for workspace {team_id!r} (installer {installer!r})")
+        else:
+            skipped += 1
 
-    print(f"done: {seeded} seeded, {skipped} skipped (already configured or no installer on record)")
+    print(f"done: {seeded} seeded, {skipped} skipped (already fully configured or no installer on record)")
 
 
 if __name__ == "__main__":

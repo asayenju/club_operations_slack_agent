@@ -9,6 +9,7 @@ class _FakeTable:
         self._filters: dict = {}
         self._pending_upsert = None
         self._pending_insert = None
+        self._pending_delete = False
 
     def select(self, *_args):
         return self
@@ -19,6 +20,10 @@ class _FakeTable:
 
     def insert(self, row):
         self._pending_insert = row
+        return self
+
+    def delete(self):
+        self._pending_delete = True
         return self
 
     def eq(self, key, value):
@@ -34,6 +39,10 @@ class _FakeTable:
         if self._pending_insert is not None:
             self._rows[self._pending_insert["workspace_id"]] = self._pending_insert
             return SimpleNamespace(data=[self._pending_insert])
+        if self._pending_delete:
+            workspace_id = self._filters.get("workspace_id")
+            removed = self._rows.pop(workspace_id, None)
+            return SimpleNamespace(data=[removed] if removed else [])
         workspace_id = self._filters.get("workspace_id")
         row = self._rows.get(workspace_id)
         return SimpleNamespace(data=[row] if row else [])
@@ -98,6 +107,67 @@ def test_set_drive_sync_admins_updates_only_that_field():
     settings = store.get("T123")
     assert settings.drive_sync_admin_user_ids == "U2,U3"
     assert settings.reconciliation_approval_user_ids == "U1"
+
+
+def test_backfill_missing_defaults_seeds_both_fields_when_no_row_exists():
+    supabase = _FakeSupabase()
+    store = WorkspaceAdminSettingsStore(supabase)
+
+    seeded = store.backfill_missing_defaults("T_NEW", "U_INSTALLER")
+
+    assert seeded is True
+    settings = store.get("T_NEW")
+    assert settings.drive_sync_admin_user_ids == "U_INSTALLER"
+    assert settings.reconciliation_approval_user_ids == "U_INSTALLER"
+
+
+def test_backfill_missing_defaults_fills_only_the_unset_field():
+    """Issue #75 review (Aman): ensure_default_admin() no-ops the moment a
+    row exists at all, so a workspace with drive_sync_admin_user_ids set by
+    hand but reconciliation_approval_user_ids still null was skipped
+    entirely instead of getting the missing field backfilled."""
+    supabase = _FakeSupabase()
+    store = WorkspaceAdminSettingsStore(supabase)
+    store.set_drive_sync_admins("T_PARTIAL", ["U_CUSTOM"])
+
+    seeded = store.backfill_missing_defaults("T_PARTIAL", "U_INSTALLER")
+
+    assert seeded is True
+    settings = store.get("T_PARTIAL")
+    assert settings.drive_sync_admin_user_ids == "U_CUSTOM"
+    assert settings.reconciliation_approval_user_ids == "U_INSTALLER"
+
+
+def test_backfill_missing_defaults_is_noop_when_both_fields_already_set():
+    supabase = _FakeSupabase()
+    store = WorkspaceAdminSettingsStore(supabase)
+    store.ensure_default_admin("T_FULL", "U_ORIGINAL")
+
+    seeded = store.backfill_missing_defaults("T_FULL", "U_INSTALLER")
+
+    assert seeded is False
+    settings = store.get("T_FULL")
+    assert settings.drive_sync_admin_user_ids == "U_ORIGINAL"
+    assert settings.reconciliation_approval_user_ids == "U_ORIGINAL"
+
+
+def test_backfill_missing_defaults_is_noop_without_user_id():
+    store = WorkspaceAdminSettingsStore(_FakeSupabase())
+
+    seeded = store.backfill_missing_defaults("T123", None)
+
+    assert seeded is False
+    assert store.get("T123").drive_sync_admin_user_ids is None
+
+
+def test_delete_removes_a_workspaces_admin_settings():
+    supabase = _FakeSupabase()
+    store = WorkspaceAdminSettingsStore(supabase)
+    store.ensure_default_admin("T123", "U1")
+
+    store.delete("T123")
+
+    assert store.get("T123").drive_sync_admin_user_ids is None
 
 
 def test_two_workspaces_have_independent_admin_lists():

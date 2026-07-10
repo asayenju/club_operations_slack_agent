@@ -83,6 +83,38 @@ class WorkspaceAdminSettingsStore:
             .execute()
         )
 
+    def backfill_missing_defaults(self, workspace_id: str, user_id: Optional[str]) -> bool:
+        """Like ensure_default_admin, but for workspaces that already have a
+        settings row with only *some* fields set -- e.g. an admin ran
+        set_drive_sync_admins() by hand without ever touching reconciliation
+        approval. ensure_default_admin() no-ops the moment any row exists,
+        so it can't backfill just the missing field; this fills in only
+        whichever of drive_sync_admin_user_ids/reconciliation_approval_user_ids
+        is still null, leaving anything already configured untouched. Returns
+        True if anything was seeded (no row, or a missing field filled in)."""
+        if not user_id:
+            return False
+        rows = (
+            self._supabase.table("workspace_admin_settings")
+            .select("drive_sync_admin_user_ids,reconciliation_approval_user_ids")
+            .eq("workspace_id", workspace_id)
+            .execute()
+            .data
+        )
+        if not rows:
+            self.ensure_default_admin(workspace_id, user_id)
+            return True
+        row = rows[0]
+        missing = {}
+        if not row.get("drive_sync_admin_user_ids"):
+            missing["drive_sync_admin_user_ids"] = [user_id]
+        if not row.get("reconciliation_approval_user_ids"):
+            missing["reconciliation_approval_user_ids"] = [user_id]
+        if not missing:
+            return False
+        self._upsert(workspace_id, **missing)
+        return True
+
     def set_drive_sync_admins(self, workspace_id: str, user_ids: Iterable[str]) -> None:
         self._upsert(workspace_id, drive_sync_admin_user_ids=list(user_ids))
 

@@ -33,16 +33,22 @@ def _patch_common(monkeypatch, supabase, admin_store):
 
 
 class _FakeAdminStore:
-    def __init__(self, already_configured_workspaces=()):
-        self.already_configured = set(already_configured_workspaces)
+    """already_fully_configured: workspaces with both fields already set --
+    backfill_missing_defaults() is a no-op for these. partially_configured:
+    workspaces with a settings row but only one field set -- Aman's #75
+    review: the old implementation skipped these entirely instead of
+    backfilling just the missing field."""
+
+    def __init__(self, already_fully_configured=(), partially_configured=()):
+        self.already_fully_configured = set(already_fully_configured)
+        self.partially_configured = set(partially_configured)
         self.seeded_calls = []
 
-    def get(self, workspace_id):
-        configured = workspace_id in self.already_configured
-        return SimpleNamespace(drive_sync_admin_user_ids=("U_EXISTING" if configured else None))
-
-    def ensure_default_admin(self, workspace_id, user_id):
+    def backfill_missing_defaults(self, workspace_id, user_id):
+        if workspace_id in self.already_fully_configured:
+            return False
         self.seeded_calls.append((workspace_id, user_id))
+        return True
 
 
 def test_backfill_seeds_workspaces_missing_admin_settings(monkeypatch, capsys):
@@ -66,13 +72,29 @@ def test_backfill_skips_workspaces_that_already_have_settings(monkeypatch, capsy
         {"team_id": "T_B", "installed_by_user_id": "U_B"},
     ]
     supabase = _FakeSupabase(installation_rows)
-    admin_store = _FakeAdminStore(already_configured_workspaces={"T_A"})
+    admin_store = _FakeAdminStore(already_fully_configured={"T_A"})
     _patch_common(monkeypatch, supabase, admin_store)
 
     backfill.main()
 
     assert admin_store.seeded_calls == [("T_B", "U_B")]
     assert "1 seeded, 1 skipped" in capsys.readouterr().out
+
+
+def test_backfill_fills_missing_field_for_partially_configured_workspace(monkeypatch, capsys):
+    """Issue #75 review (Aman): a workspace that already has one admin field
+    set (e.g. drive_sync_admin_user_ids from a manual set_drive_sync_admins()
+    call) but not the other must still get the missing field backfilled,
+    not be skipped outright."""
+    installation_rows = [{"team_id": "T_PARTIAL", "installed_by_user_id": "U_A"}]
+    supabase = _FakeSupabase(installation_rows)
+    admin_store = _FakeAdminStore(partially_configured={"T_PARTIAL"})
+    _patch_common(monkeypatch, supabase, admin_store)
+
+    backfill.main()
+
+    assert admin_store.seeded_calls == [("T_PARTIAL", "U_A")]
+    assert "1 seeded, 0 skipped" in capsys.readouterr().out
 
 
 def test_backfill_skips_and_warns_when_no_installer_on_record(monkeypatch, capsys):
