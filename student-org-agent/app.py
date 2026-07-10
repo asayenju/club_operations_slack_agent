@@ -620,6 +620,14 @@ def _forget_workspace(team_id: str | None, *, reason: str) -> None:
         logger.info(f"[{reason}] removed {removed} monitored channel(s) for {team_id}")
     except Exception:
         logger.exception(f"[{reason}] failed to remove monitored channels for {team_id}")
+    try:
+        WorkspaceGoogleCredentialsStore(supabase).delete(team_id)
+    except Exception:
+        logger.exception(f"[{reason}] failed to remove Google Drive credentials for {team_id}")
+    try:
+        WorkspaceAdminSettingsStore(supabase).delete(team_id)
+    except Exception:
+        logger.exception(f"[{reason}] failed to remove admin settings for {team_id}")
     with _monitored_lock:
         _monitored_channels_by_workspace.pop(team_id, None)
 

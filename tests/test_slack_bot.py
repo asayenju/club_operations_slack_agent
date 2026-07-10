@@ -225,12 +225,26 @@ def _stub_uninstall_dependencies(bot, monkeypatch, *, deleted_channel_counts=Non
         "delete_monitored_channels_for_workspace",
         lambda supabase, workspace_id: deleted_channels.append(workspace_id) or (deleted_channel_counts or 0),
     )
-    return store, deleted_channels
+    deleted_google_creds = []
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceGoogleCredentialsStore",
+        lambda supabase: SimpleNamespace(delete=lambda workspace_id: deleted_google_creds.append(workspace_id)),
+    )
+    deleted_admin_settings = []
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(delete=lambda workspace_id: deleted_admin_settings.append(workspace_id)),
+    )
+    return store, deleted_channels, deleted_google_creds, deleted_admin_settings
 
 
 def test_app_uninstalled_removes_installation_and_monitored_channels(monkeypatch):
     bot = load_bot_module(monkeypatch)
-    store, deleted_channels = _stub_uninstall_dependencies(bot, monkeypatch)
+    store, deleted_channels, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(
+        bot, monkeypatch
+    )
     bot._monitored_channels_by_workspace["T_UNINSTALLED"] = {"C01": "general"}
 
     bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=SimpleNamespace(
@@ -242,22 +256,40 @@ def test_app_uninstalled_removes_installation_and_monitored_channels(monkeypatch
     assert "T_UNINSTALLED" not in bot._monitored_channels_by_workspace
 
 
+def test_app_uninstalled_removes_google_credentials_and_admin_settings(monkeypatch):
+    """Issue #64 acceptance criteria (Aman review, #73): uninstall cleanup
+    must also drop workspace-scoped Google Drive credentials (#66) and admin
+    settings (#67), not just the Slack installation and monitored channels."""
+    bot = load_bot_module(monkeypatch)
+    _, _, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
+    noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
+
+    bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
+
+    assert deleted_google_creds == ["T_UNINSTALLED"]
+    assert deleted_admin_settings == ["T_UNINSTALLED"]
+
+
 def test_app_uninstalled_is_idempotent(monkeypatch):
     """Slack does not guarantee exactly-once delivery -- receiving this
     event twice for the same team must not raise."""
     bot = load_bot_module(monkeypatch)
-    store, _ = _stub_uninstall_dependencies(bot, monkeypatch)
+    store, _, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
 
     bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
     bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
 
     assert store.deleted_team_ids == ["T_UNINSTALLED", "T_UNINSTALLED"]
+    assert deleted_google_creds == ["T_UNINSTALLED", "T_UNINSTALLED"]
+    assert deleted_admin_settings == ["T_UNINSTALLED", "T_UNINSTALLED"]
 
 
 def test_tokens_revoked_removes_installation_when_bot_token_revoked(monkeypatch):
     bot = load_bot_module(monkeypatch)
-    store, deleted_channels = _stub_uninstall_dependencies(bot, monkeypatch)
+    store, deleted_channels, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(
+        bot, monkeypatch
+    )
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
 
     bot.handle_tokens_revoked(
@@ -268,13 +300,17 @@ def test_tokens_revoked_removes_installation_when_bot_token_revoked(monkeypatch)
 
     assert store.deleted_team_ids == ["T_REVOKED"]
     assert deleted_channels == ["T_REVOKED"]
+    assert deleted_google_creds == ["T_REVOKED"]
+    assert deleted_admin_settings == ["T_REVOKED"]
 
 
 def test_tokens_revoked_ignores_user_only_token_revocation(monkeypatch):
     """This app is bot-scope-only (installation_store_bot_only=True) -- a
     revoked user token with no bot token revoked isn't ours to react to."""
     bot = load_bot_module(monkeypatch)
-    store, deleted_channels = _stub_uninstall_dependencies(bot, monkeypatch)
+    store, deleted_channels, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(
+        bot, monkeypatch
+    )
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
 
     bot.handle_tokens_revoked(
@@ -285,6 +321,28 @@ def test_tokens_revoked_ignores_user_only_token_revocation(monkeypatch):
 
     assert store.deleted_team_ids == []
     assert deleted_channels == []
+    assert deleted_google_creds == []
+    assert deleted_admin_settings == []
+
+
+def test_app_uninstalled_continues_cleanup_when_google_credentials_deletion_fails(monkeypatch):
+    """A DB hiccup deleting one workspace-scoped table must not stop the
+    rest of the cleanup (installation, monitored channels, admin settings)
+    from running."""
+    bot = load_bot_module(monkeypatch)
+    store, deleted_channels, _, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
+
+    def _raise(supabase):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(bot, "WorkspaceGoogleCredentialsStore", _raise)
+    noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
+
+    bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
+
+    assert store.deleted_team_ids == ["T_UNINSTALLED"]
+    assert deleted_channels == ["T_UNINSTALLED"]
+    assert deleted_admin_settings == ["T_UNINSTALLED"]
 
 
 def test_build_hello_response_mentions_user(monkeypatch):

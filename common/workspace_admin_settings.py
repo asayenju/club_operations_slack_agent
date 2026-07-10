@@ -92,6 +92,14 @@ class WorkspaceAdminSettingsStore:
     def set_reconciliation_reaction(self, workspace_id: str, reaction: str) -> None:
         self._upsert(workspace_id, reconciliation_approval_reaction=reaction)
 
+    def delete(self, workspace_id: str) -> None:
+        (
+            self._supabase.table("workspace_admin_settings")
+            .delete()
+            .eq("workspace_id", workspace_id)
+            .execute()
+        )
+
     def _upsert(self, workspace_id: str, **fields: Any) -> None:
         fields["updated_at"] = datetime.now(timezone.utc).isoformat()
         row = {"workspace_id": workspace_id, **fields}
