@@ -675,6 +675,7 @@ class _FakeMonitoredChannelsTable:
         self._rows = rows
         self._filters: dict = {}
         self._pending_update: dict | None = None
+        self._pending_delete = False
         self.update_calls: list[dict] = []
 
     def select(self, *_args):
@@ -682,6 +683,10 @@ class _FakeMonitoredChannelsTable:
 
     def update(self, fields):
         self._pending_update = fields
+        return self
+
+    def delete(self):
+        self._pending_delete = True
         return self
 
     def eq(self, key, value):
@@ -697,6 +702,14 @@ class _FakeMonitoredChannelsTable:
             for row in matches:
                 row.update(self._pending_update)
                 self.update_calls.append({**self._filters, **self._pending_update})
+            return SimpleNamespace(data=matches)
+        if self._pending_delete:
+            matches = [
+                r for r in self._rows
+                if all(r.get(k) == v for k, v in self._filters.items())
+            ]
+            for row in matches:
+                self._rows.remove(row)
             return SimpleNamespace(data=matches)
         matches = [r for r in self._rows if all(r.get(k) == v for k, v in self._filters.items())]
         return SimpleNamespace(data=matches)
@@ -736,6 +749,29 @@ def test_update_channel_progress_only_touches_the_requested_workspace():
 
     assert rows[0]["oldest_ts_backfilled"] == "100.0"
     assert rows[1]["oldest_ts_backfilled"] is None
+
+
+def test_delete_monitored_channels_for_workspace_only_deletes_that_workspace():
+    rows = [
+        {"workspace_id": "T_A", "channel_id": "C01", "channel_name": "general", "enabled": True},
+        {"workspace_id": "T_A", "channel_id": "C02", "channel_name": "random", "enabled": True},
+        {"workspace_id": "T_B", "channel_id": "C01", "channel_name": "general", "enabled": True},
+    ]
+    supabase = _FakeMultiWorkspaceSupabase(rows)
+
+    deleted_count = slack_ingestion.delete_monitored_channels_for_workspace(supabase, "T_A")
+
+    assert deleted_count == 2
+    assert rows == [{"workspace_id": "T_B", "channel_id": "C01", "channel_name": "general", "enabled": True}]
+
+
+def test_delete_monitored_channels_for_workspace_is_idempotent():
+    rows = []
+    supabase = _FakeMultiWorkspaceSupabase(rows)
+
+    deleted_count = slack_ingestion.delete_monitored_channels_for_workspace(supabase, "T_UNKNOWN")
+
+    assert deleted_count == 0
 
 
 # ---------------------------------------------------------------------------

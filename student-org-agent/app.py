@@ -12,6 +12,7 @@ from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings, get_slack_settings
 from common.slack_ingestion import (
+    delete_monitored_channels_for_workspace,
     delete_slack_message,
     ingest_slack_message,
     list_monitored_channels,
@@ -558,6 +559,51 @@ def handle_message(event, context, logger):
 
     except Exception as exc:
         logger.error(f"[handle_message] ingestion failed for {channel_id}: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Install lifecycle -- app_uninstalled / tokens_revoked (issue #64)
+#
+# Slack does not guarantee ordering or exactly-once delivery between these
+# two events, so both handlers are written to be safe to run more than once
+# (deleting an already-gone row is a no-op, not an error) and independent of
+# each other.
+# ---------------------------------------------------------------------------
+
+def _forget_workspace(team_id: str | None, *, reason: str) -> None:
+    if not team_id:
+        return
+    supabase = _get_supabase()
+    store = SupabaseInstallationStore(supabase)
+    try:
+        store.delete_all(enterprise_id=None, team_id=team_id)
+    except Exception:
+        logger.exception(f"[{reason}] failed to remove installation for {team_id}")
+    try:
+        removed = delete_monitored_channels_for_workspace(supabase, team_id)
+        logger.info(f"[{reason}] removed {removed} monitored channel(s) for {team_id}")
+    except Exception:
+        logger.exception(f"[{reason}] failed to remove monitored channels for {team_id}")
+    with _monitored_lock:
+        _monitored_channels_by_workspace.pop(team_id, None)
+
+
+@app.event("app_uninstalled")
+def handle_app_uninstalled(context, logger):
+    _forget_workspace(context.get("team_id"), reason="app_uninstalled")
+
+
+@app.event("tokens_revoked")
+def handle_tokens_revoked(event, context, logger):
+    """Only bot-scope installs matter here (installation_store_bot_only=True
+    everywhere else in this app) -- a non-empty `tokens.bot` list means our
+    one bot token for this team is no longer valid, so drop the whole
+    installation rather than trying to track individual token IDs we never
+    stored."""
+    revoked_bot_users = (event.get("tokens") or {}).get("bot") or []
+    if not revoked_bot_users:
+        return
+    _forget_workspace(context.get("team_id"), reason="tokens_revoked")
 
 
 # ---------------------------------------------------------------------------

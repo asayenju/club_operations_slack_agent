@@ -86,6 +86,21 @@ def list_monitored_channels(supabase_client: Any, workspace_id: str) -> list[dic
     return rows
 
 
+def delete_monitored_channels_for_workspace(supabase_client: Any, workspace_id: str) -> int:
+    """Stop watching every channel for a workspace (issue #64 -- called when
+    an install is removed via app_uninstalled/tokens_revoked). Returns the
+    number of rows deleted."""
+    rows = (
+        supabase_client
+        .table("monitored_channels")
+        .delete()
+        .eq("workspace_id", workspace_id)
+        .execute()
+        .data
+    )
+    return len(rows)
+
+
 # ---------------------------------------------------------------------------
 # Slice 2 — Persistence
 # ---------------------------------------------------------------------------

@@ -145,10 +145,17 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 To install into a workspace, visit `http://<host>:<SLACK_PORT>/slack/install`
 (default port `3000`) and complete Slack's OAuth consent screen.
 
-Commands are not yet workspace-aware beyond this install flow — every
-command still checks against a single `WORKSPACE_ID` (issue #63 replaces
-that with a lookup against `slack_installations`), and `app_uninstalled`/
-`tokens_revoked` cleanup isn't wired up yet (issue #64).
+Every command (except `/connect-folder`/`/disconnect-folder`, still
+single-workspace pending #66's per-workspace Google Drive OAuth) trusts
+Bolt's own OAuth-based authorization rather than checking against a static
+`WORKSPACE_ID` — if a handler runs at all, the team is genuinely installed
+(issue #63).
+
+Uninstalling the app, or Slack revoking its bot token, removes that
+workspace's row from `slack_installations` and stops watching its monitored
+channels (issue #64) — handled via the `app_uninstalled` and
+`tokens_revoked` events, both safe to receive more than once for the same
+workspace.
 
 ## HTTP mode + hosting (issue #62)
 
