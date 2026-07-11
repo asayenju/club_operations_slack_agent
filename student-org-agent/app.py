@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from slack_bolt import App
 from slack_bolt.adapter.fastapi import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
+from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings, get_slack_settings
 from common.slack_ingestion import (
@@ -85,12 +86,27 @@ app = App(
 # ---------------------------------------------------------------------------
 
 def _run_backfill() -> None:
+    """Backfill every currently-installed workspace, not just one -- each
+    install has its own bot token (issue #61) and its own monitored channels
+    (issue #65), so this can no longer assume a single configured workspace."""
+    supabase = _get_supabase()
+    store = SupabaseInstallationStore(supabase)
     try:
-        supabase = _get_supabase()
-        workspace_id = configured_workspace_id()
-        run_channel_backfill(app.client, supabase, workspace_id, log_prefix="backfill")
+        team_ids = store.list_team_ids()
     except Exception as exc:
-        print(f"[backfill] failed: {exc}")
+        print(f"[backfill] failed to list installed workspaces: {exc}")
+        return
+
+    for team_id in team_ids:
+        try:
+            bot = store.find_bot(enterprise_id=None, team_id=team_id)
+            if bot is None or not bot.bot_token:
+                print(f"[backfill] no bot token for workspace {team_id}, skipping")
+                continue
+            client = WebClient(token=bot.bot_token)
+            run_channel_backfill(client, supabase, team_id, log_prefix="backfill")
+        except Exception as exc:
+            print(f"[backfill] failed for workspace {team_id}: {exc}")
 
 
 @app.message("hello")
@@ -113,8 +129,6 @@ def build_hello_response(user_id: str) -> dict:
 @app.command("/decide")
 def handle_decide_command(ack, command, respond):
     ack()
-    if not ensure_configured_workspace(command, respond):
-        return
     decision_text = str(command.get("text", "")).strip()
     if not decision_text:
         respond(
@@ -174,12 +188,6 @@ def build_decision_service() -> DecisionService:
 @app.command("/register")
 def handle_register_command(ack, command, respond):
     ack()
-    if command.get("team_id") != configured_workspace_id():
-        respond(
-            response_type="ephemeral",
-            text="This command is not available in this workspace.",
-        )
-        return
     email = str(command.get("text", "")).strip().lower()
     if not EMAIL_PATTERN.fullmatch(email):
         respond(
@@ -247,12 +255,6 @@ def handle_reconciliation_reaction_added(event, body=None) -> bool:
         return False
     if item.get("type") != "message":
         return False
-    if workspace_id != configured_workspace_id():
-        logger.info(
-            "Ignored reconciliation reaction from unconfigured workspace",
-            extra={"workspace_id": workspace_id},
-        )
-        return False
 
     slack_channel_id = item.get("channel")
     slack_message_ts = item.get("ts")
@@ -315,12 +317,6 @@ def reaction_workspace_id(event, body=None) -> str | None:
 @app.command("/unregister")
 def handle_unregister_command(ack, command, respond):
     ack()
-    if command.get("team_id") != configured_workspace_id():
-        respond(
-            response_type="ephemeral",
-            text="This command is not available in this workspace.",
-        )
-        return
 
     try:
         removed = build_registration_service().unregister(
@@ -345,15 +341,30 @@ def handle_unregister_command(ack, command, respond):
 
 
 def configured_workspace_id() -> str:
+    """The one workspace Google Drive is currently connected for.
+
+    Every other command trusts Bolt's own OAuth-based authorization (issue
+    #61/#63): if a command handler runs at all, the InstallationStore already
+    confirmed that team_id is genuinely installed, so there's nothing left to
+    gate. Google Drive integration is the one remaining exception --
+    ingestion_api/drive_sync.py's DriveSyncService still hardcodes a single
+    workspace_id (this one) because there's only one shared Google account
+    today. #66 replaces this with a per-workspace Google OAuth flow; once
+    that lands, ensure_single_drive_workspace below (and this function) can
+    go away entirely.
+    """
     return get_ingestion_settings().required_workspace_id
 
 
-def ensure_configured_workspace(command, respond) -> bool:
+def ensure_single_drive_workspace(command, respond) -> bool:
+    """Restrict Drive-folder commands to the one workspace Drive is
+    connected for, pending #66. Every other command no longer needs this --
+    see configured_workspace_id's docstring."""
     if command.get("team_id") == configured_workspace_id():
         return True
     respond(
         response_type="ephemeral",
-        text="This command is not available in this workspace.",
+        text="Google Drive is not yet connected for this workspace.",
     )
     return False
 
@@ -388,7 +399,7 @@ def ensure_drive_sync_admin(command, respond) -> bool:
 @app.command("/connect-folder")
 def handle_connect_folder_command(ack, command, respond):
     ack()
-    if not ensure_configured_workspace(command, respond):
+    if not ensure_single_drive_workspace(command, respond):
         return
     if not ensure_drive_sync_admin(command, respond):
         return
@@ -426,7 +437,7 @@ def handle_connect_folder_command(ack, command, respond):
 @app.command("/disconnect-folder")
 def handle_disconnect_folder_command(ack, command, respond):
     ack()
-    if not ensure_configured_workspace(command, respond):
+    if not ensure_single_drive_workspace(command, respond):
         return
     if not ensure_drive_sync_admin(command, respond):
         return
@@ -459,9 +470,6 @@ def handle_disconnect_folder_command(ack, command, respond):
 @app.command("/ask")
 def handle_ask_command(ack, command, respond):
     ack()
-    if not ensure_configured_workspace(command, respond):
-        return
-
     question = str(command.get("text", "")).strip()
 
     if not question:
@@ -493,40 +501,43 @@ def handle_ask_command(ack, command, respond):
 # Slice 4 — Real-time message ingestion
 # ---------------------------------------------------------------------------
 
-_monitored_channels: dict[str, str] | None = None
+_monitored_channels_by_workspace: dict[str, dict[str, str]] = {}
 _monitored_lock = threading.Lock()
 
 
-def _get_monitored_channels() -> dict[str, str]:
-    """Return {channel_id: channel_name} from the monitored_channels config.
+def _get_monitored_channels(workspace_id: str) -> dict[str, str]:
+    """Return {channel_id: channel_name} from the monitored_channels config,
+    for one workspace.
 
     Slack's message events never include a channel_name field (on either
     message_changed or a plain new message), so this config cache — not the
     event payload — is the source of truth for the human-readable name.
+    Cached per workspace_id since #65 scoped monitored_channels per install.
     """
-    global _monitored_channels
     with _monitored_lock:
-        if _monitored_channels is None:
+        if workspace_id not in _monitored_channels_by_workspace:
             try:
                 supabase = _get_supabase()
-                rows = list_monitored_channels(supabase, configured_workspace_id())
-                _monitored_channels = {r["channel_id"]: r["channel_name"] for r in rows}
+                rows = list_monitored_channels(supabase, workspace_id)
+                _monitored_channels_by_workspace[workspace_id] = {
+                    r["channel_id"]: r["channel_name"] for r in rows
+                }
             except Exception as exc:
-                print(f"[monitored_channels] failed to load: {exc}")
+                print(f"[monitored_channels] failed to load for {workspace_id}: {exc}")
                 return {}
-    return _monitored_channels
+    return _monitored_channels_by_workspace[workspace_id]
 
 
 @app.event("message")
-def handle_message(event, logger):
+def handle_message(event, context, logger):
+    workspace_id = context["team_id"]
     channel_id = event.get("channel", "")
-    monitored = _get_monitored_channels()
+    monitored = _get_monitored_channels(workspace_id)
     if channel_id not in monitored:
         return
 
     channel_name = monitored[channel_id]
     subtype = event.get("subtype")
-    workspace_id = configured_workspace_id()
 
     try:
         if subtype == "message_deleted":

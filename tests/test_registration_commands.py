@@ -103,30 +103,6 @@ def test_register_rejects_invalid_email_without_persisting(monkeypatch):
     assert service.registrations == []
 
 
-def test_register_rejects_command_from_wrong_workspace(monkeypatch):
-    bot = load_bot_module(monkeypatch)
-    service = FakeRegistrationService()
-    responses = []
-    monkeypatch.setattr(bot, "build_registration_service", lambda: service)
-    monkeypatch.setattr(bot, "configured_workspace_id", lambda: "T_EXPECTED")
-
-    bot.handle_register_command(
-        ack=lambda: responses.append({"acked": True}),
-        command={
-            "team_id": "T_OTHER",
-            "user_id": "U123",
-            "text": "member@club.org",
-        },
-        respond=lambda **kwargs: responses.append(kwargs),
-    )
-
-    assert responses == [
-        {"acked": True},
-        {
-            "response_type": "ephemeral",
-            "text": "This command is not available in this workspace.",
-        },
-    ]
     assert service.registrations == []
 
 
