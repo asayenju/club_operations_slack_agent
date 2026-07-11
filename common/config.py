@@ -54,9 +54,6 @@ class IngestionSettings(BaseAppSettings):
     public_base_url: str | None = None
     drive_poll_interval_seconds: int = 300
     ingestion_api_key: str | None = None
-    drive_sync_admin_user_ids: str | None = None
-    reconciliation_approval_user_ids: str | None = None
-    reconciliation_approval_reaction: str = "white_check_mark"
     slack_backfill_limit: int = 200
     slack_reconcile_cron_hour: int = 6
 

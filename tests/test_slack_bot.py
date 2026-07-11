@@ -76,7 +76,7 @@ def allow_reconciliation_approval(bot, monkeypatch, service):
     monkeypatch.setattr(
         bot,
         "build_reconciliation_approval_policy",
-        lambda: ReconciliationApprovalPolicy(
+        lambda workspace_id: ReconciliationApprovalPolicy(
             lead_user_ids=frozenset({"UAPPROVER"}),
             approval_reaction="white_check_mark",
         ),
@@ -96,6 +96,56 @@ def reaction_event(**overrides):
     }
     event.update(overrides)
     return event
+
+
+def test_on_install_success_seeds_default_admin_then_calls_default_success(monkeypatch):
+    """Issue #67: a newly installed workspace gets its installer seeded as
+    admin automatically -- no redeploy or env var edit needed."""
+    bot = load_bot_module(monkeypatch)
+    seeded = []
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            ensure_default_admin=lambda workspace_id, user_id: seeded.append((workspace_id, user_id))
+        ),
+    )
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+
+    default_calls = []
+    args = SimpleNamespace(
+        installation=SimpleNamespace(team_id="T_NEW", user_id="U_INSTALLER"),
+        default=SimpleNamespace(success=lambda a: default_calls.append(a) or "default-success-response"),
+    )
+
+    result = bot._on_install_success(args)
+
+    assert seeded == [("T_NEW", "U_INSTALLER")]
+    assert result == "default-success-response"
+    assert default_calls == [args]
+
+
+def test_on_install_success_still_calls_default_success_if_seeding_fails(monkeypatch):
+    """A DB hiccup while seeding admin defaults shouldn't break the actual
+    Slack install -- the user should still see Slack's success page."""
+    bot = load_bot_module(monkeypatch)
+
+    def _raise(supabase):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(bot, "WorkspaceAdminSettingsStore", _raise)
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+
+    default_calls = []
+    args = SimpleNamespace(
+        installation=SimpleNamespace(team_id="T_NEW", user_id="U_INSTALLER"),
+        default=SimpleNamespace(success=lambda a: default_calls.append(a) or "default-success-response"),
+    )
+
+    result = bot._on_install_success(args)
+
+    assert result == "default-success-response"
+    assert default_calls == [args]
 
 
 def test_run_backfill_iterates_every_installed_workspace(monkeypatch):
@@ -175,12 +225,26 @@ def _stub_uninstall_dependencies(bot, monkeypatch, *, deleted_channel_counts=Non
         "delete_monitored_channels_for_workspace",
         lambda supabase, workspace_id: deleted_channels.append(workspace_id) or (deleted_channel_counts or 0),
     )
-    return store, deleted_channels
+    deleted_google_creds = []
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceGoogleCredentialsStore",
+        lambda supabase: SimpleNamespace(delete=lambda workspace_id: deleted_google_creds.append(workspace_id)),
+    )
+    deleted_admin_settings = []
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(delete=lambda workspace_id: deleted_admin_settings.append(workspace_id)),
+    )
+    return store, deleted_channels, deleted_google_creds, deleted_admin_settings
 
 
 def test_app_uninstalled_removes_installation_and_monitored_channels(monkeypatch):
     bot = load_bot_module(monkeypatch)
-    store, deleted_channels = _stub_uninstall_dependencies(bot, monkeypatch)
+    store, deleted_channels, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(
+        bot, monkeypatch
+    )
     bot._monitored_channels_by_workspace["T_UNINSTALLED"] = {"C01": "general"}
 
     bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=SimpleNamespace(
@@ -192,22 +256,40 @@ def test_app_uninstalled_removes_installation_and_monitored_channels(monkeypatch
     assert "T_UNINSTALLED" not in bot._monitored_channels_by_workspace
 
 
+def test_app_uninstalled_removes_google_credentials_and_admin_settings(monkeypatch):
+    """Issue #64 acceptance criteria (Aman review, #73): uninstall cleanup
+    must also drop workspace-scoped Google Drive credentials (#66) and admin
+    settings (#67), not just the Slack installation and monitored channels."""
+    bot = load_bot_module(monkeypatch)
+    _, _, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
+    noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
+
+    bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
+
+    assert deleted_google_creds == ["T_UNINSTALLED"]
+    assert deleted_admin_settings == ["T_UNINSTALLED"]
+
+
 def test_app_uninstalled_is_idempotent(monkeypatch):
     """Slack does not guarantee exactly-once delivery -- receiving this
     event twice for the same team must not raise."""
     bot = load_bot_module(monkeypatch)
-    store, _ = _stub_uninstall_dependencies(bot, monkeypatch)
+    store, _, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
 
     bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
     bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
 
     assert store.deleted_team_ids == ["T_UNINSTALLED", "T_UNINSTALLED"]
+    assert deleted_google_creds == ["T_UNINSTALLED", "T_UNINSTALLED"]
+    assert deleted_admin_settings == ["T_UNINSTALLED", "T_UNINSTALLED"]
 
 
 def test_tokens_revoked_removes_installation_when_bot_token_revoked(monkeypatch):
     bot = load_bot_module(monkeypatch)
-    store, deleted_channels = _stub_uninstall_dependencies(bot, monkeypatch)
+    store, deleted_channels, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(
+        bot, monkeypatch
+    )
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
 
     bot.handle_tokens_revoked(
@@ -218,13 +300,17 @@ def test_tokens_revoked_removes_installation_when_bot_token_revoked(monkeypatch)
 
     assert store.deleted_team_ids == ["T_REVOKED"]
     assert deleted_channels == ["T_REVOKED"]
+    assert deleted_google_creds == ["T_REVOKED"]
+    assert deleted_admin_settings == ["T_REVOKED"]
 
 
 def test_tokens_revoked_ignores_user_only_token_revocation(monkeypatch):
     """This app is bot-scope-only (installation_store_bot_only=True) -- a
     revoked user token with no bot token revoked isn't ours to react to."""
     bot = load_bot_module(monkeypatch)
-    store, deleted_channels = _stub_uninstall_dependencies(bot, monkeypatch)
+    store, deleted_channels, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(
+        bot, monkeypatch
+    )
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
 
     bot.handle_tokens_revoked(
@@ -235,6 +321,28 @@ def test_tokens_revoked_ignores_user_only_token_revocation(monkeypatch):
 
     assert store.deleted_team_ids == []
     assert deleted_channels == []
+    assert deleted_google_creds == []
+    assert deleted_admin_settings == []
+
+
+def test_app_uninstalled_continues_cleanup_when_google_credentials_deletion_fails(monkeypatch):
+    """A DB hiccup deleting one workspace-scoped table must not stop the
+    rest of the cleanup (installation, monitored channels, admin settings)
+    from running."""
+    bot = load_bot_module(monkeypatch)
+    store, deleted_channels, _, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
+
+    def _raise(supabase):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(bot, "WorkspaceGoogleCredentialsStore", _raise)
+    noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
+
+    bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
+
+    assert store.deleted_team_ids == ["T_UNINSTALLED"]
+    assert deleted_channels == ["T_UNINSTALLED"]
+    assert deleted_admin_settings == ["T_UNINSTALLED"]
 
 
 def test_build_hello_response_mentions_user(monkeypatch):
@@ -394,6 +502,15 @@ def _stub_drive_connected(bot, monkeypatch):
         lambda supabase: SimpleNamespace(is_connected=lambda workspace_id: True),
     )
     monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                drive_sync_admin_user_ids=None,
+            )
+        ),
+    )
 
 
 def test_handle_connect_folder_command_reports_summary(monkeypatch):
@@ -473,6 +590,15 @@ def test_handle_connect_folder_command_prompts_connection_when_drive_not_connect
     monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
     monkeypatch.setattr(
         bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                drive_sync_admin_user_ids=None,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        bot,
         "GoogleOAuthStateStore",
         lambda supabase: SimpleNamespace(create=lambda workspace_id, user_id, **kwargs: "opaque-test-token"),
     )
@@ -490,6 +616,48 @@ def test_handle_connect_folder_command_prompts_connection_when_drive_not_connect
             "response_type": "ephemeral",
             "text": "Connect Google Drive for this workspace first: "
                     "https://accounts.google.com/auth?state=opaque-test-token",
+        },
+    ]
+
+
+def test_handle_connect_folder_command_reports_failure_when_google_oauth_misconfigured(monkeypatch):
+    """GOOGLE_OAUTH_CLIENT_ID/SECRET missing (or any other failure building
+    the authorization URL) must give an ephemeral error, not crash the
+    whole command handler uncaught."""
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceGoogleCredentialsStore",
+        lambda supabase: SimpleNamespace(is_connected=lambda workspace_id: False),
+    )
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                drive_sync_admin_user_ids=None,
+            )
+        ),
+    )
+
+    def _raise(state):
+        raise RuntimeError("GOOGLE_OAUTH_CLIENT_ID must be configured")
+
+    monkeypatch.setattr(bot, "build_authorization_url", _raise)
+
+    bot.handle_connect_folder_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_ANY_WORKSPACE", "text": "root", "user_id": "U1"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "I couldn't start the Google Drive connection right now.",
         },
     ]
 
@@ -517,6 +685,36 @@ def test_handle_connect_folder_command_works_for_any_workspace_once_connected(mo
     assert calls == ["root"]
     assert responses[1]["response_type"] == "ephemeral"
     assert "Connected" in responses[1]["text"]
+
+
+def test_admin_check_is_independent_per_workspace(monkeypatch):
+    """Issue #67: one workspace's admin list must not affect another's --
+    replacing the old single deployment-wide DRIVE_SYNC_ADMIN_USER_IDS list."""
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    admin_lists = {"T_A": "U_A_ADMIN", "T_B": "U_B_ADMIN"}
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                drive_sync_admin_user_ids=admin_lists[workspace_id],
+            )
+        ),
+    )
+
+    # U_A_ADMIN is T_A's admin but not T_B's -- must be rejected in T_B.
+    bot.handle_connect_folder_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_B", "user_id": "U_A_ADMIN", "text": "root"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses[-1] == {
+        "response_type": "ephemeral",
+        "text": "You are not allowed to manage connected Drive folders.",
+    }
 
 
 class FakeMemoryAnswerService:
@@ -608,9 +806,16 @@ def test_handle_connect_folder_command_rejects_non_admin(monkeypatch):
     monkeypatch.setattr(
         bot,
         "get_ingestion_settings",
-        lambda: SimpleNamespace(
-            app_env="production",
-            drive_sync_admin_user_ids="U_ALLOWED",
+        lambda: SimpleNamespace(app_env="production"),
+    )
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                drive_sync_admin_user_ids="U_ALLOWED",
+            )
         ),
     )
 
@@ -773,7 +978,7 @@ def test_reconciliation_reaction_accepts_skin_tone_reaction_variant(monkeypatch)
     monkeypatch.setattr(
         bot,
         "build_reconciliation_approval_policy",
-        lambda: ReconciliationApprovalPolicy(
+        lambda workspace_id: ReconciliationApprovalPolicy(
             lead_user_ids=frozenset({"UAPPROVER"}),
             approval_reaction="+1",
         ),
@@ -796,7 +1001,7 @@ def test_reconciliation_reaction_skips_lookup_when_approval_unconfigured(monkeyp
     monkeypatch.setattr(
         bot,
         "build_reconciliation_approval_policy",
-        lambda: ReconciliationApprovalPolicy(
+        lambda workspace_id: ReconciliationApprovalPolicy(
             lead_user_ids=frozenset(),
             approval_reaction="white_check_mark",
         ),

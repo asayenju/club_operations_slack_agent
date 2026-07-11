@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from pydantic import ValidationError
 from slack_bolt import App
 from slack_bolt.adapter.fastapi import SlackRequestHandler
+from slack_bolt.oauth.callback_options import CallbackOptions, FailureArgs, SuccessArgs
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk import WebClient
 
@@ -27,6 +28,7 @@ from common.slack_ingestion import (
     run_channel_backfill,
 )
 from common.slack_installation_store import SupabaseInstallationStore
+from common.workspace_admin_settings import WorkspaceAdminSettingsStore
 from decisions.embedding import EmbeddingError, VoyageEmbeddingClient
 from decisions.repository import SupabaseDocumentsRepository
 from decisions.service import DecisionAlreadyStored, DecisionService
@@ -72,6 +74,27 @@ def _get_supabase():
 
 _slack_settings = get_slack_settings()
 
+
+def _on_install_success(args: SuccessArgs):
+    """Issue #67: seed a newly installed workspace's admin lists with its
+    installer, so /connect-folder and reconciliation approval work without
+    a redeploy or env var edit. A no-op if that workspace already has admin
+    settings (e.g. a reinstall)."""
+    try:
+        WorkspaceAdminSettingsStore(_get_supabase()).ensure_default_admin(
+            args.installation.team_id, args.installation.user_id
+        )
+    except Exception:
+        logger.exception(
+            f"Failed to seed default admin settings for {args.installation.team_id}"
+        )
+    return args.default.success(args)
+
+
+def _on_install_failure(args: FailureArgs):
+    return args.default.failure(args)
+
+
 app = App(
     signing_secret=_slack_settings.slack_signing_secret,
     installation_store=SupabaseInstallationStore(_get_supabase()),
@@ -81,6 +104,7 @@ app = App(
         client_secret=_slack_settings.slack_client_secret,
         scopes=BOT_SCOPES,
         installation_store_bot_only=True,
+        callback_options=CallbackOptions(success=_on_install_success, failure=_on_install_failure),
     ),
     token_verification_enabled=os.environ.get(
         "SLACK_TOKEN_VERIFICATION_ENABLED", "false"
@@ -245,8 +269,12 @@ def build_reconciliation_proposal_service() -> ReconciliationProposalService:
     return ReconciliationProposalService(repository)
 
 
-def build_reconciliation_approval_policy() -> ReconciliationApprovalPolicy:
-    return ReconciliationApprovalPolicy.from_settings(get_ingestion_settings())
+def build_reconciliation_approval_policy(workspace_id: str) -> ReconciliationApprovalPolicy:
+    ingestion_settings = get_ingestion_settings()
+    workspace_settings = WorkspaceAdminSettingsStore(_get_supabase()).get(
+        workspace_id, app_env=ingestion_settings.app_env
+    )
+    return ReconciliationApprovalPolicy.from_settings(workspace_settings)
 
 
 @app.event("reaction_added")
@@ -273,7 +301,7 @@ def handle_reconciliation_reaction_added(event, body=None) -> bool:
 
     try:
         validate_reconciliation_approval(
-            policy=build_reconciliation_approval_policy(),
+            policy=build_reconciliation_approval_policy(workspace_id),
             approving_user_id=approving_user_id,
             reaction=reaction,
         )
@@ -350,7 +378,10 @@ def handle_unregister_command(ack, command, respond):
 
 def ensure_drive_sync_admin(command, respond) -> bool:
     settings = get_ingestion_settings()
-    configured = settings.drive_sync_admin_user_ids
+    workspace_settings = WorkspaceAdminSettingsStore(_get_supabase()).get(
+        command["team_id"], app_env=settings.app_env
+    )
+    configured = workspace_settings.drive_sync_admin_user_ids
     if configured:
         allowed_user_ids = {
             user_id.strip()
@@ -589,6 +620,14 @@ def _forget_workspace(team_id: str | None, *, reason: str) -> None:
         logger.info(f"[{reason}] removed {removed} monitored channel(s) for {team_id}")
     except Exception:
         logger.exception(f"[{reason}] failed to remove monitored channels for {team_id}")
+    try:
+        WorkspaceGoogleCredentialsStore(supabase).delete(team_id)
+    except Exception:
+        logger.exception(f"[{reason}] failed to remove Google Drive credentials for {team_id}")
+    try:
+        WorkspaceAdminSettingsStore(supabase).delete(team_id)
+    except Exception:
+        logger.exception(f"[{reason}] failed to remove admin settings for {team_id}")
     with _monitored_lock:
         _monitored_channels_by_workspace.pop(team_id, None)
 
