@@ -3,9 +3,10 @@ import os
 import re
 import threading
 
+from fastapi import FastAPI, Request
 from pydantic import ValidationError
 from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
+from slack_bolt.adapter.fastapi import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 
 from common.config import get_ingestion_settings, get_slack_settings
@@ -549,36 +550,43 @@ def handle_message(event, logger):
 
 
 # ---------------------------------------------------------------------------
-# OAuth install flow (issue #61)
+# HTTP mode (issue #62)
 #
-# Socket Mode (used below for events) has no HTTP surface of its own, so the
-# "Add to Slack" install button and Slack's OAuth redirect callback need a
-# small HTTP server of their own. This runs on its own port
-# (SLACK_OAUTH_PORT) alongside the Socket Mode connection in the same
-# process. Once #62 migrates event delivery to HTTP mode, this server can
-# absorb the /slack/events route too instead of running standalone.
+# Socket Mode apps can't be listed in the Slack Marketplace, and a single
+# Socket Mode connection isn't built around per-installation routing anyway.
+# All Slack traffic -- events, slash commands, interactivity, and the OAuth
+# install/redirect routes from #61 -- is served over HTTP instead, with
+# Bolt verifying each request's X-Slack-Signature/X-Slack-Request-Timestamp
+# against SLACK_SIGNING_SECRET before any handler logic runs (built into
+# SlackRequestHandler; not hand-rolled here).
 # ---------------------------------------------------------------------------
 
-def _run_oauth_server() -> None:
-    import uvicorn
-    from fastapi import FastAPI, Request
-    from slack_bolt.adapter.fastapi import SlackRequestHandler
+_slack_request_handler = SlackRequestHandler(app)
+http_app = FastAPI()
 
-    handler = SlackRequestHandler(app)
-    oauth_app = FastAPI()
 
-    @oauth_app.get("/slack/install")
-    async def install(request: Request):
-        return await handler.handle(request)
+@http_app.post("/slack/events")
+async def slack_events(request: Request):
+    return await _slack_request_handler.handle(request)
 
-    @oauth_app.get("/slack/oauth_redirect")
-    async def oauth_redirect(request: Request):
-        return await handler.handle(request)
 
-    uvicorn.run(oauth_app, host="0.0.0.0", port=_slack_settings.slack_oauth_port, log_level="warning")
+@http_app.get("/slack/install")
+async def slack_install(request: Request):
+    return await _slack_request_handler.handle(request)
+
+
+@http_app.get("/slack/oauth_redirect")
+async def slack_oauth_redirect(request: Request):
+    return await _slack_request_handler.handle(request)
+
+
+@http_app.get("/health")
+async def health():
+    return {"status": "ok", "service": "slack-bot"}
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     threading.Thread(target=_run_backfill, daemon=True).start()
-    threading.Thread(target=_run_oauth_server, daemon=True).start()
-    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
+    uvicorn.run(http_app, host="0.0.0.0", port=_slack_settings.slack_port)

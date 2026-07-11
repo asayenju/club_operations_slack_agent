@@ -16,9 +16,10 @@ services:
     env_file:
       - .env
     ports:
-      # OAuth install flow (issue #61) -- localhost-only until #62 puts this
-      # behind a real public HTTPS endpoint, matching ingestion-api's pattern.
-      - "127.0.0.1:${SLACK_OAUTH_PORT:-3000}:3000"
+      # Slack events/commands/interactivity + OAuth install/redirect (issues
+      # #61/#62). Localhost-only for local dev; the Fly.io deploy (fly.toml)
+      # exposes this publicly with TLS termination instead.
+      - "127.0.0.1:${SLACK_PORT:-3000}:3000"
     volumes:
       - ./common:/app/common
       - ./decisions:/app/decisions

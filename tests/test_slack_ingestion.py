@@ -746,7 +746,6 @@ def _load_app(monkeypatch, monitored_ids=("C01",)):
     import importlib.util
     from pathlib import Path
 
-    monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
     monkeypatch.setenv("SLACK_CLIENT_ID", "client-id-test")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret-test")
     monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret-test")
@@ -758,7 +757,7 @@ def _load_app(monkeypatch, monitored_ids=("C01",)):
         slack_signing_secret="signing-secret-test",
         slack_client_id="client-id-test",
         slack_client_secret="client-secret-test",
-        slack_oauth_port=3000,
+        slack_port=3000,
     ))
 
     module_path = Path(__file__).resolve().parents[1] / "student-org-agent" / "app.py"

@@ -30,7 +30,6 @@ class FakeRegistrationService:
 
 
 def load_bot_module(monkeypatch):
-    monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
     monkeypatch.setenv("SLACK_CLIENT_ID", "client-id-test")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret-test")
     monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret-test")

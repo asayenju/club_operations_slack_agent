@@ -22,9 +22,10 @@ docker compose up --build
 ```
 
 The ingestion API will be available at `http://localhost:8000`.
-The Slack bot connects for events using Socket Mode (`SLACK_APP_TOKEN`), but
-no longer uses a single static bot token — see
-[Multi-workspace install (OAuth)](#multi-workspace-install-oauth) below.
+The Slack bot serves events, slash commands, interactivity, and OAuth
+install/redirect over HTTP (not Socket Mode, and not a single static bot
+token) — see [Multi-workspace install (OAuth)](#multi-workspace-install-oauth)
+below.
 
 The Slack bot responds to messages containing `hello` and supports `/decide`
 for recording club decisions into the existing Supabase `documents` table.
@@ -125,10 +126,10 @@ writes one encrypted row — no OAuth flow or public endpoint required.
 Required `.env` values:
 
 ```text
-SLACK_APP_TOKEN=...
 SLACK_CLIENT_ID=...
 SLACK_CLIENT_SECRET=...
 SLACK_SIGNING_SECRET=...
+SLACK_PORT=3000
 APP_ENCRYPTION_KEY=...
 ```
 
@@ -141,19 +142,50 @@ tokens at rest; generate one with:
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-`SLACK_APP_TOKEN` (the Socket Mode app-level token) is still a single value
-in `.env` — it's shared by the whole Slack app regardless of which
-workspaces have installed it, unlike the per-workspace bot token.
-
-To install into a workspace, visit `http://<host>:<SLACK_OAUTH_PORT>/slack/install`
-(default port `3000`) and complete Slack's OAuth consent screen. This runs
-as its own small HTTP server alongside the bot's Socket Mode connection —
-it is not yet reachable from the public internet (that's issue #62).
+To install into a workspace, visit `http://<host>:<SLACK_PORT>/slack/install`
+(default port `3000`) and complete Slack's OAuth consent screen.
 
 Commands are not yet workspace-aware beyond this install flow — every
 command still checks against a single `WORKSPACE_ID` (issue #63 replaces
 that with a lookup against `slack_installations`), and `app_uninstalled`/
 `tokens_revoked` cleanup isn't wired up yet (issue #64).
+
+## HTTP mode + hosting (issue #62)
+
+Socket Mode apps can't be listed in the Slack Marketplace, so all Slack
+traffic — events, slash commands, interactivity, and the OAuth routes above
+— is served over plain HTTP instead, with Bolt verifying every request's
+`X-Slack-Signature`/`X-Slack-Request-Timestamp` against
+`SLACK_SIGNING_SECRET` before any handler runs. There is no
+`SLACK_APP_TOKEN`/Socket Mode connection anymore.
+
+Locally, `docker compose up` binds this to `127.0.0.1:${SLACK_PORT:-3000}`,
+same pattern as `ingestion-api`. For a real public HTTPS endpoint (needed
+for Slack's OAuth redirect, the Events API, and Marketplace submission),
+deploy with [Fly.io](https://fly.io):
+
+```bash
+fly auth login          # interactive browser login, one-time
+fly launch              # scaffolds/merges fly.toml, pick a public app name
+fly secrets set SLACK_CLIENT_ID=... SLACK_CLIENT_SECRET=... \
+  SLACK_SIGNING_SECRET=... APP_ENCRYPTION_KEY=... \
+  SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... VOYAGE_API_KEY=... \
+  WORKSPACE_ID=... ANTHROPIC_API_KEY=...
+fly deploy
+```
+
+`fly.toml` runs only the Slack-facing process (`student-org-agent/app.py`)
+publicly — `ingestion-api` and `drive-sync-worker` stay local/private via
+`docker-compose.yml`, matching how `ingestion-api` was already
+`127.0.0.1`-only. Once deployed, update `student-org-agent/manifest.json`'s
+`YOUR_PUBLIC_DOMAIN` placeholders with the real `*.fly.dev` hostname (or your
+own domain), then update/reinstall the Slack app manifest. That's every
+`oauth_config.redirect_urls` entry, `settings.event_subscriptions.request_url`,
+`settings.interactivity.request_url`, **and each entry's own `url` field
+under `features.slash_commands`** — a slash command's request URL is a
+separate field from the other two per Slack's manifest schema; missing it
+means that command silently does nothing when invoked, even though events
+and interactivity work fine.
 
 ## Slack-to-Google account registration
 
@@ -208,7 +240,6 @@ Set these environment values for the Slack bot, ingestion API, and Drive sync
 worker:
 
 ```text
-SLACK_APP_TOKEN=...
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 VOYAGE_API_KEY=...
