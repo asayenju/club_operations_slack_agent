@@ -52,6 +52,9 @@
     ]
   },
   "oauth_config": {
+    "redirect_urls": [
+      "https://YOUR_PUBLIC_DOMAIN/slack/oauth_redirect"
+    ],
     "scopes": {
       "bot": [
         "app_mentions:read",

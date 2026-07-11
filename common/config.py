@@ -18,8 +18,11 @@ class BaseAppSettings(BaseSettings):
 
 class SlackSettings(BaseAppSettings):
     app_env: str = "development"
-    slack_bot_token: str
     slack_app_token: str
+    slack_client_id: str
+    slack_client_secret: str
+    slack_signing_secret: str
+    slack_oauth_port: int = 3000
     slack_token_verification_enabled: bool = False
     supabase_url: str
     supabase_service_role_key: str = Field(

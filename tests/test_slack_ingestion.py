@@ -746,13 +746,19 @@ def _load_app(monkeypatch, monitored_ids=("C01",)):
     import importlib.util
     from pathlib import Path
 
-    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
     monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
+    monkeypatch.setenv("SLACK_CLIENT_ID", "client-id-test")
+    monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret-test")
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret-test")
 
     # Stub out Supabase + settings so the module loads without credentials
     monkeypatch.setattr("common.config.get_slack_settings", lambda: SimpleNamespace(
         supabase_url="http://fake",
-        supabase_service_role_key="fake",
+        supabase_service_role_key="fake.fake.fake",
+        slack_signing_secret="signing-secret-test",
+        slack_client_id="client-id-test",
+        slack_client_secret="client-secret-test",
+        slack_oauth_port=3000,
     ))
 
     module_path = Path(__file__).resolve().parents[1] / "student-org-agent" / "app.py"
