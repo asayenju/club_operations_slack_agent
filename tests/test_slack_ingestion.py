@@ -613,7 +613,7 @@ def test_run_channel_backfill_isolates_one_channel_failure(monkeypatch, capsys):
     monkeypatch.setattr(slack_ingestion, "backfill_channel", fake_backfill_channel)
     monkeypatch.setattr(
         slack_ingestion, "list_monitored_channels",
-        lambda sb: [_channel("C_BAD", "bad-channel"), _channel("C_GOOD", "good-channel")],
+        lambda sb, workspace_id: [_channel("C_BAD", "bad-channel"), _channel("C_GOOD", "good-channel")],
     )
 
     slack_ingestion.run_channel_backfill(object(), object(), "T123")
@@ -633,7 +633,7 @@ def test_run_channel_backfill_decides_full_walk_per_channel(monkeypatch):
     monkeypatch.setattr(slack_ingestion, "backfill_channel", fake_backfill_channel)
     monkeypatch.setattr(
         slack_ingestion, "list_monitored_channels",
-        lambda sb: [
+        lambda sb, workspace_id: [
             _channel("C_DONE", "done", initial_backfill_complete=True),
             _channel("C_NOT_DONE", "not-done", initial_backfill_complete=False),
         ],
@@ -654,12 +654,124 @@ def test_run_channel_backfill_force_full_walk_overrides_per_channel_state(monkey
     monkeypatch.setattr(slack_ingestion, "backfill_channel", fake_backfill_channel)
     monkeypatch.setattr(
         slack_ingestion, "list_monitored_channels",
-        lambda sb: [_channel("C_NOT_DONE", "not-done", initial_backfill_complete=False)],
+        lambda sb, workspace_id: [_channel("C_NOT_DONE", "not-done", initial_backfill_complete=False)],
     )
 
     slack_ingestion.run_channel_backfill(object(), object(), "T123", force_full_walk=True)
 
     assert seen_full_walk == {"C_NOT_DONE": True}
+
+
+# ---------------------------------------------------------------------------
+# Issue #65 — monitored_channels workspace scoping
+# ---------------------------------------------------------------------------
+
+class _FakeMonitoredChannelsTable:
+    """Mimics the Supabase query builder chain closely enough to prove
+    list_monitored_channels/_update_channel_progress filter by workspace_id
+    rather than returning/touching every workspace's rows."""
+
+    def __init__(self, rows):
+        self._rows = rows
+        self._filters: dict = {}
+        self._pending_update: dict | None = None
+        self._pending_delete = False
+        self.update_calls: list[dict] = []
+
+    def select(self, *_args):
+        return self
+
+    def update(self, fields):
+        self._pending_update = fields
+        return self
+
+    def delete(self):
+        self._pending_delete = True
+        return self
+
+    def eq(self, key, value):
+        self._filters[key] = value
+        return self
+
+    def execute(self):
+        if self._pending_update is not None:
+            matches = [
+                r for r in self._rows
+                if all(r.get(k) == v for k, v in self._filters.items())
+            ]
+            for row in matches:
+                row.update(self._pending_update)
+                self.update_calls.append({**self._filters, **self._pending_update})
+            return SimpleNamespace(data=matches)
+        if self._pending_delete:
+            matches = [
+                r for r in self._rows
+                if all(r.get(k) == v for k, v in self._filters.items())
+            ]
+            for row in matches:
+                self._rows.remove(row)
+            return SimpleNamespace(data=matches)
+        matches = [r for r in self._rows if all(r.get(k) == v for k, v in self._filters.items())]
+        return SimpleNamespace(data=matches)
+
+
+class _FakeMultiWorkspaceSupabase:
+    def __init__(self, rows):
+        self._rows = rows
+        self.last_table: _FakeMonitoredChannelsTable | None = None
+
+    def table(self, name):
+        assert name == "monitored_channels"
+        self.last_table = _FakeMonitoredChannelsTable(self._rows)
+        return self.last_table
+
+
+def test_list_monitored_channels_only_returns_the_requested_workspace():
+    rows = [
+        {"workspace_id": "T_A", "channel_id": "C01", "channel_name": "general", "enabled": True},
+        {"workspace_id": "T_B", "channel_id": "C01", "channel_name": "random", "enabled": True},
+    ]
+    supabase = _FakeMultiWorkspaceSupabase(rows)
+
+    result = slack_ingestion.list_monitored_channels(supabase, "T_A")
+
+    assert [r["channel_name"] for r in result] == ["general"]
+
+
+def test_update_channel_progress_only_touches_the_requested_workspace():
+    rows = [
+        {"workspace_id": "T_A", "channel_id": "C01", "oldest_ts_backfilled": None},
+        {"workspace_id": "T_B", "channel_id": "C01", "oldest_ts_backfilled": None},
+    ]
+    supabase = _FakeMultiWorkspaceSupabase(rows)
+
+    slack_ingestion._update_channel_progress(supabase, "T_A", "C01", oldest_ts_backfilled="100.0")
+
+    assert rows[0]["oldest_ts_backfilled"] == "100.0"
+    assert rows[1]["oldest_ts_backfilled"] is None
+
+
+def test_delete_monitored_channels_for_workspace_only_deletes_that_workspace():
+    rows = [
+        {"workspace_id": "T_A", "channel_id": "C01", "channel_name": "general", "enabled": True},
+        {"workspace_id": "T_A", "channel_id": "C02", "channel_name": "random", "enabled": True},
+        {"workspace_id": "T_B", "channel_id": "C01", "channel_name": "general", "enabled": True},
+    ]
+    supabase = _FakeMultiWorkspaceSupabase(rows)
+
+    deleted_count = slack_ingestion.delete_monitored_channels_for_workspace(supabase, "T_A")
+
+    assert deleted_count == 2
+    assert rows == [{"workspace_id": "T_B", "channel_id": "C01", "channel_name": "general", "enabled": True}]
+
+
+def test_delete_monitored_channels_for_workspace_is_idempotent():
+    rows = []
+    supabase = _FakeMultiWorkspaceSupabase(rows)
+
+    deleted_count = slack_ingestion.delete_monitored_channels_for_workspace(supabase, "T_UNKNOWN")
+
+    assert deleted_count == 0
 
 
 # ---------------------------------------------------------------------------
@@ -670,13 +782,18 @@ def _load_app(monkeypatch, monitored_ids=("C01",)):
     import importlib.util
     from pathlib import Path
 
-    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
-    monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
+    monkeypatch.setenv("SLACK_CLIENT_ID", "client-id-test")
+    monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret-test")
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret-test")
 
     # Stub out Supabase + settings so the module loads without credentials
     monkeypatch.setattr("common.config.get_slack_settings", lambda: SimpleNamespace(
         supabase_url="http://fake",
-        supabase_service_role_key="fake",
+        supabase_service_role_key="fake.fake.fake",
+        slack_signing_secret="signing-secret-test",
+        slack_client_id="client-id-test",
+        slack_client_secret="client-secret-test",
+        slack_port=3000,
     ))
 
     module_path = Path(__file__).resolve().parents[1] / "student-org-agent" / "app.py"
@@ -685,7 +802,7 @@ def _load_app(monkeypatch, monitored_ids=("C01",)):
 
     # Patch slack_ingestion functions before exec so the module picks them up
     monkeypatch.setattr(slack_ingestion, "list_monitored_channels",
-                        lambda sb: [{"channel_id": cid, "channel_name": cid} for cid in monitored_ids])
+                        lambda sb, workspace_id: [{"channel_id": cid, "channel_name": cid} for cid in monitored_ids])
 
     spec.loader.exec_module(module)
     return module
@@ -704,11 +821,11 @@ def test_real_time_new_message_ingested(monkeypatch):
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
     # Reset cached monitored channels so the stub takes effect
-    bot._monitored_channels = {"C01": "general"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "general"}}
 
     # Real Slack message events never include channel_name — only the ID.
     event = {"channel": "C01", "user": "U01", "text": "Hello", "ts": "1234567890.000100"}
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert len(ingested) == 1
     assert ingested[0]["text"] == "Hello"
@@ -720,11 +837,11 @@ def test_real_time_unmonitored_channel_skipped(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channels = {"C01": "general"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "general"}}
 
     event = {"channel": "C99", "user": "U01", "text": "Should not ingest",
               "ts": "1234567890.000100"}
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert ingested == []
 
@@ -733,7 +850,7 @@ def test_real_time_message_changed_reupserts(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channels = {"C01": "general"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "general"}}
 
     # Real message_changed events never include channel_name either.
     event = {
@@ -741,7 +858,7 @@ def test_real_time_message_changed_reupserts(monkeypatch):
         "subtype": "message_changed",
         "message": {"user": "U01", "text": "Edited text", "ts": "1234567890.000100"},
     }
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert len(ingested) == 1
     assert ingested[0]["text"] == "Edited text"
@@ -753,10 +870,10 @@ def test_real_time_message_deleted_removes(monkeypatch):
     monkeypatch.setattr(slack_ingestion, "delete_slack_message",
                         lambda ws, ch, ts: deleted.append((ch, ts)))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channels = {"C01": "general"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "general"}}
 
     event = {"channel": "C01", "subtype": "message_deleted", "deleted_ts": "1234567890.000100"}
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert deleted == [("C01", "1234567890.000100")]
 
@@ -765,13 +882,41 @@ def test_real_time_bot_message_not_ingested(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channels = {"C01": "general"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "general"}}
 
     event = {"channel": "C01", "bot_id": "B01", "text": "I am a bot",
               "ts": "1234567890.000100"}
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert ingested == []
+
+
+def test_real_time_ingestion_does_not_leak_across_workspaces(monkeypatch):
+    """Issue #63: monitored-channel cache is keyed per workspace_id (from
+    Bolt's own context, not a static WORKSPACE_ID) -- two workspaces
+    monitoring the same channel ID must not see each other's channel name,
+    and each message must be ingested under its own workspace_id."""
+    ingested = []
+    monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append((ws, msg)))
+    bot = _load_app(monkeypatch, monitored_ids=["C01"])
+    bot._monitored_channels_by_workspace = {
+        "T_A": {"C01": "general-workspace-a"},
+        "T_B": {"C01": "general-workspace-b"},
+    }
+
+    event = {"channel": "C01", "user": "U01", "text": "Hello from A", "ts": "1234567890.000100"}
+    bot.handle_message(event, context={"team_id": "T_A"}, logger=SimpleNamespace(error=print))
+
+    event_b = {"channel": "C01", "user": "U01", "text": "Hello from B", "ts": "1234567890.000200"}
+    bot.handle_message(event_b, context={"team_id": "T_B"}, logger=SimpleNamespace(error=print))
+
+    assert len(ingested) == 2
+    workspace_a, msg_a = ingested[0]
+    workspace_b, msg_b = ingested[1]
+    assert workspace_a == "T_A"
+    assert msg_a["channel_name"] == "general-workspace-a"
+    assert workspace_b == "T_B"
+    assert msg_b["channel_name"] == "general-workspace-b"
 
 
 def test_real_time_channel_name_never_falls_back_to_channel_id(monkeypatch):
@@ -781,10 +926,10 @@ def test_real_time_channel_name_never_falls_back_to_channel_id(monkeypatch):
     ingested = []
     monkeypatch.setattr(slack_ingestion, "ingest_slack_message", lambda ws, msg: ingested.append(msg))
     bot = _load_app(monkeypatch, monitored_ids=["C01"])
-    bot._monitored_channels = {"C01": "club-announcements"}
+    bot._monitored_channels_by_workspace = {"T123": {"C01": "club-announcements"}}
 
     event = {"channel": "C01", "user": "U01", "text": "Hello", "ts": "1234567890.000100"}
-    bot.handle_message(event, logger=SimpleNamespace(error=print))
+    bot.handle_message(event, context={"team_id": "T123"}, logger=SimpleNamespace(error=print))
 
     assert ingested[0]["channel_name"] == "club-announcements"
     assert ingested[0]["channel_name"] != "C01"

@@ -18,7 +18,11 @@ def verify_slack_scopes(client: WebClient, sample_channel_id: str | None = None)
         client.auth_test()
     except SlackApiError as exc:
         error = exc.response.get("error", "unknown_error")
-        raise SlackScopeError(f"Slack auth_test failed ({error}); check SLACK_BOT_TOKEN") from exc
+        raise SlackScopeError(
+            f"Slack auth_test failed ({error}); the resolved bot token for this "
+            "workspace is invalid or missing. Complete the OAuth install flow at "
+            "/slack/install, or check the corresponding row in slack_installations."
+        ) from exc
 
     if not sample_channel_id:
         return
@@ -32,6 +36,8 @@ def verify_slack_scopes(client: WebClient, sample_channel_id: str | None = None)
             raise SlackScopeError(
                 f"Bot token is missing a required scope ({needed}). "
                 f"Grant {' and '.join(REQUIRED_HISTORY_SCOPES)} in the Slack app config "
-                "and reinstall the app to the workspace."
+                "and reinstall the app to the workspace. For private channels, also "
+                "confirm the bot has been added to the channel before testing history "
+                "or real-time ingestion."
             ) from exc
         raise SlackScopeError(f"Slack conversations.history check failed: {error}") from exc

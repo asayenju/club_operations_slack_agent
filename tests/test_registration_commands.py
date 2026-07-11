@@ -30,14 +30,14 @@ class FakeRegistrationService:
 
 
 def load_bot_module(monkeypatch):
-    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
-    monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
+    monkeypatch.setenv("SLACK_CLIENT_ID", "client-id-test")
+    monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret-test")
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret-test")
     monkeypatch.setenv("WORKSPACE_ID", "T123")
     module_path = Path(__file__).resolve().parents[1] / "student-org-agent" / "app.py"
     spec = importlib.util.spec_from_file_location("student_org_agent_register", module_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    monkeypatch.setattr(module, "configured_workspace_id", lambda: "T123")
     return module
 
 
@@ -102,30 +102,6 @@ def test_register_rejects_invalid_email_without_persisting(monkeypatch):
     assert service.registrations == []
 
 
-def test_register_rejects_command_from_wrong_workspace(monkeypatch):
-    bot = load_bot_module(monkeypatch)
-    service = FakeRegistrationService()
-    responses = []
-    monkeypatch.setattr(bot, "build_registration_service", lambda: service)
-    monkeypatch.setattr(bot, "configured_workspace_id", lambda: "T_EXPECTED")
-
-    bot.handle_register_command(
-        ack=lambda: responses.append({"acked": True}),
-        command={
-            "team_id": "T_OTHER",
-            "user_id": "U123",
-            "text": "member@club.org",
-        },
-        respond=lambda **kwargs: responses.append(kwargs),
-    )
-
-    assert responses == [
-        {"acked": True},
-        {
-            "response_type": "ephemeral",
-            "text": "This command is not available in this workspace.",
-        },
-    ]
     assert service.registrations == []
 
 

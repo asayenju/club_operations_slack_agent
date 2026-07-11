@@ -1,5 +1,4 @@
 from functools import lru_cache
-from pathlib import Path
 from typing import TypeVar
 
 from pydantic import AliasChoices, Field
@@ -18,8 +17,10 @@ class BaseAppSettings(BaseSettings):
 
 class SlackSettings(BaseAppSettings):
     app_env: str = "development"
-    slack_bot_token: str
-    slack_app_token: str
+    slack_client_id: str
+    slack_client_secret: str
+    slack_signing_secret: str
+    slack_port: int = 3000
     slack_token_verification_enabled: bool = False
     supabase_url: str
     supabase_service_role_key: str = Field(
@@ -48,13 +49,11 @@ class IngestionSettings(BaseAppSettings):
     supabase_publishable_key: str | None = None
     voyage_api_key: str | None = None
     workspace_id: str | None = None
-    google_token_path: Path = Path("secrets/club_token.json")
+    google_oauth_client_id: str | None = None
+    google_oauth_client_secret: str | None = None
+    public_base_url: str | None = None
     drive_poll_interval_seconds: int = 300
     ingestion_api_key: str | None = None
-    drive_sync_admin_user_ids: str | None = None
-    reconciliation_approval_user_ids: str | None = None
-    reconciliation_approval_reaction: str = "white_check_mark"
-    reconciliation_channel_id: str | None = None
     slack_backfill_limit: int = 200
     slack_reconcile_cron_hour: int = 6
 
@@ -80,8 +79,12 @@ class IngestionSettings(BaseAppSettings):
         return self.require(self.workspace_id, "WORKSPACE_ID")
 
     @property
-    def required_reconciliation_channel_id(self) -> str:
-        return self.require(self.reconciliation_channel_id, "RECONCILIATION_CHANNEL_ID")
+    def required_google_oauth_client_id(self) -> str:
+        return self.require(self.google_oauth_client_id, "GOOGLE_OAUTH_CLIENT_ID")
+
+    @property
+    def required_google_oauth_client_secret(self) -> str:
+        return self.require(self.google_oauth_client_secret, "GOOGLE_OAUTH_CLIENT_SECRET")
 
 
 @lru_cache

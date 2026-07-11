@@ -17,53 +17,64 @@
         "command": "/decide",
         "description": "Record a club decision",
         "usage_hint": "We approved the spring budget.",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/connect-folder",
         "description": "Connect a Google Drive folder for ingestion",
         "usage_hint": "https://drive.google.com/drive/folders/...",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/disconnect-folder",
         "description": "Disconnect a Google Drive folder",
         "usage_hint": "https://drive.google.com/drive/folders/...",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/register",
         "description": "Link your Slack account to a Google account",
         "usage_hint": "you@example.com",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/unregister",
         "description": "Remove your linked Google account",
         "usage_hint": "",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/ask",
         "description": "Ask a question and get an answer from memory",
         "usage_hint": "What is our current budget?",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       },
       {
         "command": "/reconcile-run",
         "description": "Trigger reconciliation with any topics",
         "usage_hint": "finance",
-        "should_escape": false
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       }
     ]
   },
   "oauth_config": {
+    "redirect_urls": [
+      "https://YOUR_PUBLIC_DOMAIN/slack/oauth_redirect"
+    ],
     "scopes": {
       "bot": [
         "app_mentions:read",
         "channels:history",
         "chat:write",
         "commands",
+        "groups:history",
         "im:history",
         "reactions:read",
         "search:read.public"
@@ -72,18 +83,23 @@
   },
   "settings": {
     "event_subscriptions": {
+      "request_url": "https://YOUR_PUBLIC_DOMAIN/slack/events",
       "bot_events": [
         "app_mention",
+        "app_uninstalled",
         "message.channels",
+        "message.groups",
         "message.im",
-        "reaction_added"
+        "reaction_added",
+        "tokens_revoked"
       ]
     },
     "interactivity": {
-      "is_enabled": true
+      "is_enabled": true,
+      "request_url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
     },
     "org_deploy_enabled": true,
-    "socket_mode_enabled": true,
+    "socket_mode_enabled": false,
     "token_rotation_enabled": false
   }
 }

@@ -65,12 +65,7 @@ def test_ingest_doc_embeds_only_new_chunks(monkeypatch):
     )[0]
     upserted = []
 
-    monkeypatch.setattr(
-        ingest_docs,
-        "get_ingestion_settings",
-        lambda: SimpleNamespace(required_workspace_id="T123"),
-    )
-    monkeypatch.setattr(ingest_docs, "fetch_doc", lambda doc_id: document)
+    monkeypatch.setattr(ingest_docs, "fetch_doc", lambda doc_id, workspace_id: document)
     monkeypatch.setattr(
         ingest_docs,
         "existing_keys",
@@ -88,7 +83,7 @@ def test_ingest_doc_embeds_only_new_chunks(monkeypatch):
         lambda workspace_id, source, source_id, current_keys: 0,
     )
 
-    result = ingest_docs.ingest_doc("doc-123")
+    result = ingest_docs.ingest_doc("doc-123", "T123")
 
     assert result["inserted_or_changed"] == 0
     assert result["unchanged"] == 1

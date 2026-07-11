@@ -69,8 +69,8 @@ def normalize_message(raw: dict[str, Any], channel_id: str, channel_name: str) -
     )
 
 
-def list_monitored_channels(supabase_client: Any) -> list[dict[str, Any]]:
-    """Return all enabled rows from the monitored_channels table."""
+def list_monitored_channels(supabase_client: Any, workspace_id: str) -> list[dict[str, Any]]:
+    """Return all enabled rows from the monitored_channels table for one workspace."""
     rows = (
         supabase_client
         .table("monitored_channels")
@@ -78,11 +78,27 @@ def list_monitored_channels(supabase_client: Any) -> list[dict[str, Any]]:
             "channel_id,channel_name,backfill_limit,oldest_ts_backfilled,"
             "initial_backfill_complete,last_reconciled_at,last_reconciled_ts"
         )
+        .eq("workspace_id", workspace_id)
         .eq("enabled", True)
         .execute()
         .data
     )
     return rows
+
+
+def delete_monitored_channels_for_workspace(supabase_client: Any, workspace_id: str) -> int:
+    """Stop watching every channel for a workspace (issue #64 -- called when
+    an install is removed via app_uninstalled/tokens_revoked). Returns the
+    number of rows deleted."""
+    rows = (
+        supabase_client
+        .table("monitored_channels")
+        .delete()
+        .eq("workspace_id", workspace_id)
+        .execute()
+        .data
+    )
+    return len(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +235,7 @@ def _paginate_replies(
             return
 
 
-def _update_channel_progress(supabase_client: Any, channel_id: str, **fields: Any) -> None:
+def _update_channel_progress(supabase_client: Any, workspace_id: str, channel_id: str, **fields: Any) -> None:
     if not fields:
         return
     fields["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -227,6 +243,7 @@ def _update_channel_progress(supabase_client: Any, channel_id: str, **fields: An
         supabase_client
         .table("monitored_channels")
         .update(fields)
+        .eq("workspace_id", workspace_id)
         .eq("channel_id", channel_id)
         .execute()
     )
@@ -323,6 +340,7 @@ def backfill_channel(
         error = exc.response.get("error", "unknown_error")
         _update_channel_progress(
             supabase_client,
+            workspace_id,
             channel_id,
             last_backfill_error=error,
             last_backfill_error_at=datetime.now(timezone.utc).isoformat(),
@@ -395,7 +413,7 @@ def backfill_channel(
         if pagination_state.get("exhausted"):
             progress["initial_backfill_complete"] = True
     if progress:
-        _update_channel_progress(supabase_client, channel_id, **progress)
+        _update_channel_progress(supabase_client, workspace_id, channel_id, **progress)
 
     if not to_ingest:
         return _empty_result(deleted=deleted_count)
@@ -456,7 +474,7 @@ def run_channel_backfill(
     `initial_backfill_complete` flag — channels still catching up get a
     bounded backfill, channels already caught up get reconciled.
     """
-    channels = list_monitored_channels(supabase_client)
+    channels = list_monitored_channels(supabase_client, workspace_id)
     for ch in channels:
         channel_label = ch.get("channel_name") or ch.get("channel_id", "?")
         full_walk = force_full_walk or bool(ch.get("initial_backfill_complete"))

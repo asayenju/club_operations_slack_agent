@@ -2,8 +2,13 @@ from common.config import IngestionSettings, SlackSettings
 
 
 def test_slack_settings_accepts_supabase_service_key_alias(monkeypatch):
-    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
-    monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
+    # Deliberately absent: this test proves the alias fallback works when
+    # the primary name isn't set, so it can't rely on ambient environment
+    # state (e.g. conftest.py's test defaults) leaving it unset by accident.
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    monkeypatch.setenv("SLACK_CLIENT_ID", "client-id")
+    monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret")
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "service-key")
     monkeypatch.setenv("VOYAGE_API_KEY", "voyage-key")
@@ -25,8 +30,9 @@ def test_ingestion_settings_accepts_supabase_service_role_key_alias(monkeypatch)
 
 
 def test_settings_prefer_service_role_key_when_both_aliases_are_set(monkeypatch):
-    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
-    monkeypatch.setenv("SLACK_APP_TOKEN", "xapp-test")
+    monkeypatch.setenv("SLACK_CLIENT_ID", "client-id")
+    monkeypatch.setenv("SLACK_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", "signing-secret")
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "role-key")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "legacy-key")

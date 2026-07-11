@@ -22,8 +22,10 @@ docker compose up --build
 ```
 
 The ingestion API will be available at `http://localhost:8000`.
-The Slack bot will connect using Socket Mode when `SLACK_BOT_TOKEN` and
-`SLACK_APP_TOKEN` are set in `.env`.
+The Slack bot serves events, slash commands, interactivity, and OAuth
+install/redirect over HTTP (not Socket Mode, and not a single static bot
+token) — see [Multi-workspace install (OAuth)](#multi-workspace-install-oauth)
+below.
 
 The Slack bot responds to messages containing `hello` and supports `/decide`
 for recording club decisions into the existing Supabase `documents` table.
@@ -91,6 +93,107 @@ semantic chunker.
 The Slack app manifest includes `/decide`, but the Slack app must be updated or
 reinstalled for the slash command to appear in the workspace.
 
+## Multi-workspace install (OAuth)
+
+The app is installable by more than one Slack workspace at once (issue #61).
+Each installing workspace gets its own bot token via Slack's OAuth flow
+rather than sharing one static `SLACK_BOT_TOKEN` — that env var no longer
+exists. Tokens are stored encrypted in the `slack_installations` table
+instead of an env var.
+
+Run this migration before installing into any workspace:
+
+```text
+supabase/migrations/20260708_slack_installations.sql
+```
+
+**Upgrading a workspace that's already running on the old static
+`SLACK_BOT_TOKEN`?** The moment this ships, that env var stops being read at
+all — the bot and ingestion API lose their token entirely, and the only
+normal recovery is completing `/slack/install` again, which isn't reachable
+from outside the host until real public hosting exists (see [HTTP mode +
+hosting](#http-mode--hosting-issue-62)). Avoid that gap by seeding the
+existing token into `slack_installations` directly, before or during that
+deploy:
+
+```bash
+SLACK_BOT_TOKEN=xoxb-your-existing-token python -m tools.seed_slack_installation
+```
+
+This calls `auth.test` with that token to find the workspace's `team_id` and
+writes one encrypted row — no OAuth flow or public endpoint required.
+
+Required `.env` values:
+
+```text
+SLACK_CLIENT_ID=...
+SLACK_CLIENT_SECRET=...
+SLACK_SIGNING_SECRET=...
+SLACK_PORT=3000
+APP_ENCRYPTION_KEY=...
+```
+
+`SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`/`SLACK_SIGNING_SECRET` come from the
+Slack app's **Basic Information** page — Distribution must be turned on for
+`client_id`/`client_secret` to be visible. `APP_ENCRYPTION_KEY` encrypts
+tokens at rest; generate one with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+To install into a workspace, visit `http://<host>:<SLACK_PORT>/slack/install`
+(default port `3000`) and complete Slack's OAuth consent screen.
+
+Every command (except `/connect-folder`/`/disconnect-folder`, still
+single-workspace pending #66's per-workspace Google Drive OAuth) trusts
+Bolt's own OAuth-based authorization rather than checking against a static
+`WORKSPACE_ID` — if a handler runs at all, the team is genuinely installed
+(issue #63).
+
+Uninstalling the app, or Slack revoking its bot token, removes that
+workspace's row from `slack_installations` and stops watching its monitored
+channels (issue #64) — handled via the `app_uninstalled` and
+`tokens_revoked` events, both safe to receive more than once for the same
+workspace.
+
+## HTTP mode + hosting (issue #62)
+
+Socket Mode apps can't be listed in the Slack Marketplace, so all Slack
+traffic — events, slash commands, interactivity, and the OAuth routes above
+— is served over plain HTTP instead, with Bolt verifying every request's
+`X-Slack-Signature`/`X-Slack-Request-Timestamp` against
+`SLACK_SIGNING_SECRET` before any handler runs. There is no
+`SLACK_APP_TOKEN`/Socket Mode connection anymore.
+
+Locally, `docker compose up` binds this to `127.0.0.1:${SLACK_PORT:-3000}`,
+same pattern as `ingestion-api`. For a real public HTTPS endpoint (needed
+for Slack's OAuth redirect, the Events API, and Marketplace submission),
+deploy with [Fly.io](https://fly.io):
+
+```bash
+fly auth login          # interactive browser login, one-time
+fly launch              # scaffolds/merges fly.toml, pick a public app name
+fly secrets set SLACK_CLIENT_ID=... SLACK_CLIENT_SECRET=... \
+  SLACK_SIGNING_SECRET=... APP_ENCRYPTION_KEY=... \
+  SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... VOYAGE_API_KEY=... \
+  WORKSPACE_ID=... ANTHROPIC_API_KEY=...
+fly deploy
+```
+
+`fly.toml` runs only the Slack-facing process (`student-org-agent/app.py`)
+publicly — `ingestion-api` and `drive-sync-worker` stay local/private via
+`docker-compose.yml`, matching how `ingestion-api` was already
+`127.0.0.1`-only. Once deployed, update `student-org-agent/manifest.json`'s
+`YOUR_PUBLIC_DOMAIN` placeholders with the real `*.fly.dev` hostname (or your
+own domain), then update/reinstall the Slack app manifest. That's every
+`oauth_config.redirect_urls` entry, `settings.event_subscriptions.request_url`,
+`settings.interactivity.request_url`, **and each entry's own `url` field
+under `features.slash_commands`** — a slash command's request URL is a
+separate field from the other two per Slack's manifest schema; missing it
+means that command silently does nothing when invoked, even though events
+and interactivity work fine.
+
 ## Slack-to-Google account registration
 
 Run this migration before enabling account registration:
@@ -132,27 +235,54 @@ and should not be overwritten by future roster imports.
 ## Connected Drive folders
 
 Docs and Sheets are discovered from explicitly connected Drive folders instead
-of scanning every file visible to the club Google account.
+of scanning every file visible to a Google account. Each installed Slack
+workspace connects its **own** Google account (issue #66) — there is no
+single shared club account or local token file anymore.
 
-Before using folder sync, run this migration in the Supabase SQL editor:
+Before using folder sync, run these migrations in the Supabase SQL editor:
 
 ```text
 supabase/migrations/20260623_drive_folder_sync.sql
+supabase/migrations/20260708_workspace_google_credentials.sql
+supabase/migrations/20260708_workspace_admin_settings.sql
+supabase/migrations/20260709_google_oauth_states.sql
 ```
+
+**Upgrading a workspace that already had Drive connected via the old shared
+`secrets/club_token.json`?** That file stops being read entirely after this
+change, and — unlike the Slack bot token — **there is no way to seed its
+refresh token into the new table.** Google refresh tokens are bound to the
+OAuth client that issued them; the old token was issued to a Desktop client,
+this feature registers a different Web application client
+(`GOOGLE_OAUTH_CLIENT_ID`), so the old token would fail the moment the app
+tried to refresh it. The only fix is re-running `/connect-folder` in that
+workspace to go through the new OAuth flow and get a fresh token. Until an
+admin does that, Drive/Docs/Sheets sync for that workspace is inactive — the
+background poll loop and `tools/drive_poll_worker.py` both log a warning
+every cycle when zero workspaces are connected, rather than silently doing
+nothing, so this is visible in the logs instead of only discovered by
+noticing ingestion stopped.
 
 Set these environment values for the Slack bot, ingestion API, and Drive sync
 worker:
 
 ```text
-SLACK_BOT_TOKEN=...
-SLACK_APP_TOKEN=...
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 VOYAGE_API_KEY=...
 WORKSPACE_ID=...
-GOOGLE_TOKEN_PATH=secrets/club_token.json
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+PUBLIC_BASE_URL=...
 DRIVE_POLL_INTERVAL_SECONDS=300
 ```
+
+`GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` come from a Google Cloud
+OAuth 2.0 **Web application** client (not a Desktop client) with the Docs,
+Drive, and Sheets read-only scopes enabled, and `PUBLIC_BASE_URL` (e.g.
+`https://your-app.fly.dev`, same host as [HTTP mode +
+hosting](#http-mode--hosting-issue-62)) with a redirect URI of
+`{PUBLIC_BASE_URL}/google/oauth_redirect` registered on that client.
 
 `SUPABASE_SERVICE_KEY` is also accepted as an alias for
 `SUPABASE_SERVICE_ROLE_KEY`; when both are set, `SUPABASE_SERVICE_ROLE_KEY`
@@ -165,12 +295,35 @@ Then update or reinstall the Slack app manifest so `/connect-folder` and
 /connect-folder https://drive.google.com/drive/folders/<folder_id>
 ```
 
-In non-development environments, set the Slack users allowed to manage connected
-folders:
+If this workspace hasn't connected Google Drive yet, `/connect-folder`
+replies with a link to complete Google's consent screen instead of failing —
+run `/connect-folder` again afterward.
 
-```text
-DRIVE_SYNC_ADMIN_USER_IDS=U123456789,U987654321
+Who's allowed to manage connected folders is per-workspace (issue #67), not a
+deployment-wide env var — the Slack user who completed the OAuth install is
+seeded as that workspace's default admin automatically. Change it via the
+`workspace_admin_settings` table (`drive_sync_admin_user_ids`, a Postgres
+`text[]`) or `common.workspace_admin_settings.WorkspaceAdminSettingsStore`.
+In development, any user is allowed if a workspace has no admins configured
+yet.
+
+**Upgrading a workspace that was already installed before this feature
+shipped?** It gets no row automatically — that only happens for new installs
+going forward, via the OAuth success callback — and there's no fallback to
+the old env vars (they were deleted from config entirely). In non-development
+environments this breaks `/connect-folder` with a visible error, and breaks
+reconciliation reaction approval **silently** (reaction events have no
+response channel to show an error in). Run this once, for every
+already-installed workspace, to backfill each one's installer as its default
+admin — the same thing the OAuth callback does for new installs, applied
+retroactively:
+
+```bash
+python -m tools.backfill_workspace_admin_settings
 ```
+
+A no-op for any workspace that already has admin settings, so it's safe to
+re-run.
 
 The initial scan recursively walks subfolders and records subfolder membership
 plus supported Google Docs and Sheets. Supported files are dispatched to the
@@ -204,15 +357,17 @@ Internal API equivalents are also available:
 curl -X POST http://localhost:8000/drive/connect \
   -H "Content-Type: application/json" \
   -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
-  -d '{"folder":"https://drive.google.com/drive/folders/<folder_id>","user_id":"U123"}'
+  -d '{"folder":"https://drive.google.com/drive/folders/<folder_id>","workspace_id":"T123","user_id":"U123"}'
 
 curl -X POST http://localhost:8000/drive/sync \
-  -H "X-Ingestion-Api-Key: $INGESTION_API_KEY"
+  -H "Content-Type: application/json" \
+  -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
+  -d '{"workspace_id":"T123"}'
 
 curl -X POST http://localhost:8000/drive/disconnect \
   -H "Content-Type: application/json" \
   -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
-  -d '{"folder":"<folder_id>"}'
+  -d '{"folder":"<folder_id>","workspace_id":"T123"}'
 ```
 
 In Docker Compose, the ingestion API is bound to `127.0.0.1` by default. If
@@ -242,21 +397,20 @@ SUPABASE_URL=...
 SUPABASE_SERVICE_KEY=...
 VOYAGE_API_KEY=...
 WORKSPACE_ID=...
-GOOGLE_TOKEN_PATH=secrets/club_token.json
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+PUBLIC_BASE_URL=...
 ```
 
-Never expose `SUPABASE_SERVICE_KEY`, `VOYAGE_API_KEY`, `client_secret.json`, or
-the generated Google token to a browser or commit them to Git.
+Never expose `SUPABASE_SERVICE_KEY`, `VOYAGE_API_KEY`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+or any workspace's stored refresh token to a browser or commit them to Git —
+refresh tokens are encrypted at rest (`APP_ENCRYPTION_KEY`, same mechanism as
+Slack bot tokens) but the Google OAuth client secret itself is not.
 
-Create a Google OAuth Desktop client with the Docs, Drive, and Sheets APIs
-enabled. Download it as `client_secret.json`, sign into the dedicated club
-Google account, and run:
-
-```bash
-python -m tools.google_auth_bootstrap
-```
-
-This writes the reusable OAuth token to `secrets/club_token.json`.
+Docs/Sheets/Drive access is per-workspace (issue #66) via `/connect-folder`'s
+OAuth flow — see [Connected Drive folders](#connected-drive-folders). There is
+no standalone bootstrap script or local token file anymore; every workspace's
+Google credentials live encrypted in `workspace_google_credentials`.
 
 The `documents` table must include `workspace_id`, `source`, `source_id`,
 `chunk_key`, `content`, `content_hash`, `metadata`, `embedding`, `created_at`,
@@ -371,8 +525,9 @@ Scopes/events required for Slack ingestion specifically (a subset of the full
 bot manifest at `student-org-agent/manifest.json`, which also grants scopes
 for other features like `/decide` and `/ask`): `channels:history` and
 `im:history`, with event subscriptions `message.channels` and `message.im`.
-**Private channels are not supported today** — that would require adding
-`groups:history` and the `message.groups` event, then reinstalling the app.
+Private monitored channels additionally require `groups:history` and the
+`message.groups` event; both are declared in the current manifest, so update
+or reinstall the Slack app after applying it.
 
 Manual verification against a test workspace:
 
@@ -417,20 +572,37 @@ not provide an explicit expiry timestamp. Run `expire_due(workspace_id)`
 regularly from the reconciliation scheduler or maintenance job to mark overdue
 pending proposals expired before processing late approvals.
 
-Proposal confirmation is controlled by Slack user and reaction configuration:
+Proposal confirmation is controlled by per-workspace configuration (issue
+#67, `workspace_admin_settings` table: `reconciliation_approval_user_ids`,
+`reconciliation_approval_reaction`, and `reconciliation_channel_id`) — not a
+deployment-wide env var. Apply
+`supabase/migrations/20260711_workspace_reconciliation_channel.sql`, then set
+the designated review channel for each workspace, for example:
 
-```text
-RECONCILIATION_APPROVAL_USER_IDS=U123456789,U987654321
-RECONCILIATION_APPROVAL_REACTION=white_check_mark
+```sql
+update public.workspace_admin_settings
+set reconciliation_channel_id = 'C0123456789'
+where workspace_id = 'T0123456789';
 ```
 
-Only configured committee lead Slack user IDs can confirm pending proposals.
-The approval reaction defaults to Slack's `white_check_mark` name for the
-checkmark emoji. Wrong reactions, unconfigured users, missing approval user
-configuration, and proposals that are expired, rejected, superseded, or already
-confirmed are ignored. The Slack app manifest subscribes to `reaction_added` and
-requires `reactions:read`; reinstall or update the app after changing the
-manifest.
+The Slack user who completed the OAuth install is seeded as that workspace's
+default approver automatically, with the reaction defaulting to Slack's
+`white_check_mark` name for the checkmark emoji. Trigger a manual run with:
+
+```text
+/reconcile-run spring formal budget
+```
+
+The command uses that workspace's OAuth-resolved bot client and posts to its
+configured review channel. If no review channel is configured, it returns an
+ephemeral configuration error instead of posting to the command's channel.
+
+Only that workspace's configured committee lead Slack user IDs can confirm
+its pending proposals. Wrong reactions, unconfigured users, missing approval
+user configuration, and proposals that are expired, rejected, superseded, or
+already confirmed are ignored. The Slack app manifest subscribes to
+`reaction_added` and requires `reactions:read`; reinstall or update the app
+after changing the manifest.
 
 ## Ingestion setup
 
