@@ -104,7 +104,7 @@ instead of an env var.
 Run this migration before installing into any workspace:
 
 ```text
-supabase/migrations/20260708_slack_installations.sql
+supabase/migrations/20260708000100_slack_installations.sql
 ```
 
 **Upgrading a workspace that's already running on the old static
@@ -199,7 +199,7 @@ and interactivity work fine.
 Run this migration before enabling account registration:
 
 ```text
-supabase/migrations/20260623_user_google_accounts.sql
+supabase/migrations/20260623000100_user_google_accounts.sql
 ```
 
 Members can privately link any valid Google-account email to their own Slack
@@ -242,10 +242,10 @@ single shared club account or local token file anymore.
 Before using folder sync, run these migrations in the Supabase SQL editor:
 
 ```text
-supabase/migrations/20260623_drive_folder_sync.sql
-supabase/migrations/20260708_workspace_google_credentials.sql
-supabase/migrations/20260708_workspace_admin_settings.sql
-supabase/migrations/20260709_google_oauth_states.sql
+supabase/migrations/20260623000000_drive_folder_sync.sql
+supabase/migrations/20260708000300_workspace_google_credentials.sql
+supabase/migrations/20260708000200_workspace_admin_settings.sql
+supabase/migrations/20260709000000_google_oauth_states.sql
 ```
 
 **Upgrading a workspace that already had Drive connected via the old shared
@@ -482,7 +482,7 @@ will crash-loop on startup with
 `Could not find the table 'public.monitored_channels' in the schema cache`:
 
 ```text
-supabase/migrations/20260703_monitored_channels.sql
+supabase/migrations/20260703000100_monitored_channels.sql
 ```
 
 The bot does **not** scan or ingest the workspace's full Slack history. Only
@@ -552,7 +552,7 @@ any write-back behavior runs. Run this migration before enabling proposal
 workflows:
 
 ```text
-supabase/migrations/20260701_reconciliation_proposals.sql
+supabase/migrations/20260701000000_reconciliation_proposals.sql
 ```
 
 The proposal model tracks:
@@ -576,7 +576,7 @@ Proposal confirmation is controlled by per-workspace configuration (issue
 #67, `workspace_admin_settings` table: `reconciliation_approval_user_ids`,
 `reconciliation_approval_reaction`, and `reconciliation_channel_id`) — not a
 deployment-wide env var. Apply
-`supabase/migrations/20260711_workspace_reconciliation_channel.sql`, then set
+`supabase/migrations/20260711000000_workspace_reconciliation_channel.sql`, then set
 the designated review channel for each workspace, for example:
 
 ```sql
