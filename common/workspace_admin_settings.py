@@ -25,6 +25,7 @@ class WorkspaceAdminSettings:
     drive_sync_admin_user_ids: Optional[str]
     reconciliation_approval_user_ids: Optional[str]
     reconciliation_approval_reaction: str
+    reconciliation_channel_id: Optional[str]
     app_env: str = "development"
 
 
@@ -46,6 +47,7 @@ class WorkspaceAdminSettingsStore:
                 drive_sync_admin_user_ids=None,
                 reconciliation_approval_user_ids=None,
                 reconciliation_approval_reaction=DEFAULT_APPROVAL_REACTION,
+                reconciliation_channel_id=None,
                 app_env=app_env,
             )
         row = rows[0]
@@ -54,6 +56,7 @@ class WorkspaceAdminSettingsStore:
             drive_sync_admin_user_ids=_join(row.get("drive_sync_admin_user_ids")),
             reconciliation_approval_user_ids=_join(row.get("reconciliation_approval_user_ids")),
             reconciliation_approval_reaction=row.get("reconciliation_approval_reaction") or DEFAULT_APPROVAL_REACTION,
+            reconciliation_channel_id=row.get("reconciliation_channel_id"),
             app_env=app_env,
         )
 
@@ -123,6 +126,9 @@ class WorkspaceAdminSettingsStore:
 
     def set_reconciliation_reaction(self, workspace_id: str, reaction: str) -> None:
         self._upsert(workspace_id, reconciliation_approval_reaction=reaction)
+
+    def set_reconciliation_channel(self, workspace_id: str, channel_id: str) -> None:
+        self._upsert(workspace_id, reconciliation_channel_id=channel_id)
 
     def delete(self, workspace_id: str) -> None:
         (

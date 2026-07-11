@@ -49,8 +49,7 @@ def _build_flow() -> Flow:
 
 
 def build_authorization_url(state: str) -> str:
-    """`state` should encode enough to finish the callback -- this app uses
-    "{team_id}|{user_id}"."""
+    """Build consent for a server-issued, single-use OAuth state token."""
     flow = _build_flow()
     url, _ = flow.authorization_url(
         access_type="offline",

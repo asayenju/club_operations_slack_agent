@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.eval_retrieval_k import MIN_SIMILARITY, best_k, run_eval
+from scripts.eval_retrieval_k import EvaluationFailed, MIN_SIMILARITY, best_k, run_eval
 
 
 # ── best_k ────────────────────────────────────────────────────────────────────
@@ -213,7 +213,10 @@ def _no_evidence_passed(results: list[dict]) -> bool:
 
 
 def test_no_evidence_passes_when_best_similarity_below_threshold():
-    results = [{"similarity": 0.40}, {"similarity": 0.55}]
+    results = [
+        {"similarity": MIN_SIMILARITY - 0.10},
+        {"similarity": MIN_SIMILARITY - 0.05},
+    ]
     assert _no_evidence_passed(results) is True
 
 
@@ -223,7 +226,7 @@ def test_no_evidence_fails_when_best_similarity_at_or_above_threshold():
 
 
 def test_no_evidence_passes_when_results_empty():
-    # empty → default=0.0 → 0.0 < 0.70 → PASS
+    # empty → default=0.0 → 0.0 < MIN_SIMILARITY → PASS
     assert _no_evidence_passed([]) is True
 
 
@@ -277,6 +280,9 @@ def _latest_eval_json(tool: str, output_dir: Path) -> Path:
 
 def test_run_eval_knowledge_calls_match_with_gdoc_gsheet_sources(monkeypatch, knowledge_dataset, tmp_path):
     captured_sources = []
+    matching_results = _make_match_stub(
+        knowledge_dataset, no_evidence_similarity=0.40
+    )
     monkeypatch.setattr(
         "scripts.eval_retrieval_k.get_ingestion_settings", lambda: _FakeSettings()
     )
@@ -287,7 +293,7 @@ def test_run_eval_knowledge_calls_match_with_gdoc_gsheet_sources(monkeypatch, kn
 
     def capturing_match(workspace_id, query_embedding, limit, sources):
         captured_sources.append(list(sources))
-        return []
+        return matching_results(workspace_id, query_embedding, limit, sources)
 
     monkeypatch.setattr("scripts.eval_retrieval_k.match_documents", capturing_match)
     run_eval("knowledge", output_dir=tmp_path)
@@ -297,6 +303,20 @@ def test_run_eval_knowledge_calls_match_with_gdoc_gsheet_sources(monkeypatch, kn
             f"Expected sources={{gdoc, gsheet}} but got {sources}"
         )
     assert "slack_decide" not in {s for call in captured_sources for s in call}
+
+
+def test_run_eval_fails_when_positive_recall_is_below_gate(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "scripts.eval_retrieval_k.get_ingestion_settings", lambda: _FakeSettings()
+    )
+    monkeypatch.setattr(
+        "scripts.eval_retrieval_k.embed_documents",
+        lambda texts, input_type="document": [FAKE_VECTOR] * len(texts),
+    )
+    monkeypatch.setattr("scripts.eval_retrieval_k.match_documents", lambda **kwargs: [])
+
+    with pytest.raises(EvaluationFailed, match="recall@20"):
+        run_eval("knowledge", output_dir=tmp_path)
 
 
 def test_run_eval_knowledge_no_evidence_pass_written_to_json(monkeypatch, knowledge_dataset, tmp_path):
@@ -335,7 +355,8 @@ def test_run_eval_knowledge_no_evidence_fail_written_to_json(monkeypatch, knowle
         _make_match_stub(knowledge_dataset, no_evidence_similarity=0.85),
     )
 
-    run_eval("knowledge", output_dir=tmp_path)
+    with pytest.raises(EvaluationFailed, match="no-evidence"):
+        run_eval("knowledge", output_dir=tmp_path)
 
     payload = json.loads(_latest_eval_json("knowledge", tmp_path).read_text())
     assert payload["no_evidence_results"][0]["passed"] is False

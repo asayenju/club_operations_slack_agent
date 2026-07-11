@@ -48,9 +48,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from common.config import get_ingestion_settings
 from ingestion_api.documents_repo import match_documents
 from ingestion_api.embeddings import embed_documents
+from tools.vector_search import DEFAULT_MIN_SIMILARITY
 
 K_VALUES = [3, 5, 10, 20]
-MIN_SIMILARITY = 0.70  # threshold for no-evidence queries
+MIN_SIMILARITY = DEFAULT_MIN_SIMILARITY  # threshold for no-evidence queries, kept in sync with production
+MIN_RECALL_AT_MAX_K = 0.80
+
+
+class EvaluationFailed(RuntimeError):
+    """The live retrieval results did not satisfy the regression gate."""
 
 _TOOL_CONFIG = {
     "decide": {
@@ -223,6 +229,20 @@ def run_eval(tool: str, output_dir: Path | None = None) -> None:
     print(f"\n  JSON → {json_path}")
     print(f"  CSV  → {csv_path}")
 
+    max_k = max(K_VALUES)
+    if recall[max_k] < MIN_RECALL_AT_MAX_K:
+        raise EvaluationFailed(
+            f"recall@{max_k} was {recall[max_k]:.2%}; "
+            f"required at least {MIN_RECALL_AT_MAX_K:.0%}. "
+            "Seed the held-out evaluation corpus before treating this run as valid."
+        )
+    failed_no_evidence = [result for result in no_evidence_results if not result["passed"]]
+    if failed_no_evidence:
+        raise EvaluationFailed(
+            f"{len(failed_no_evidence)} no-evidence case(s) met or exceeded "
+            f"the {MIN_SIMILARITY:.2f} similarity threshold."
+        )
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -235,7 +255,11 @@ def main() -> None:
         help="Which retrieval tool to evaluate (default: decide)",
     )
     args = parser.parse_args()
-    run_eval(args.tool)
+    try:
+        run_eval(args.tool)
+    except EvaluationFailed as exc:
+        print(f"\nEVAL FAILED: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":

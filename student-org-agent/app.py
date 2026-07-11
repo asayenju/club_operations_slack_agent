@@ -43,6 +43,7 @@ from reconciliation.approval import (
     validate_reconciliation_approval,
 )
 from reconciliation.repository import SupabaseReconciliationProposalRepository
+from reconciliation.run import run_reconciliation
 from reconciliation.service import (
     InvalidProposalTransition,
     ProposalNotFound,
@@ -275,6 +276,47 @@ def build_reconciliation_approval_policy(workspace_id: str) -> ReconciliationApp
         workspace_id, app_env=ingestion_settings.app_env
     )
     return ReconciliationApprovalPolicy.from_settings(workspace_settings)
+
+
+@app.command("/reconcile-run")
+def handle_reconcile_run_command(ack, command, client, respond):
+    ack()
+    topic = str(command.get("text", "")).strip()
+    if not topic:
+        respond(response_type="ephemeral", text="Usage: `/reconcile-run <topic>`")
+        return
+
+    workspace_id = command.get("team_id")
+    try:
+        settings = get_ingestion_settings()
+        workspace_settings = WorkspaceAdminSettingsStore(_get_supabase()).get(
+            workspace_id, app_env=settings.app_env
+        )
+        reconciliation_channel_id = workspace_settings.reconciliation_channel_id
+        if not reconciliation_channel_id:
+            respond(
+                response_type="ephemeral",
+                text="A reconciliation review channel is not configured for this workspace.",
+            )
+            return
+        proposal = run_reconciliation(
+            workspace_id=workspace_id,
+            topic=topic,
+            slack_client=client,
+            slack_channel_id=reconciliation_channel_id,
+            proposal_service=build_reconciliation_proposal_service(),
+        )
+    except Exception:
+        logger.exception("Failed to run reconciliation")
+        respond(response_type="ephemeral", text="Reconciliation run failed.")
+        return
+
+    respond(
+        response_type="ephemeral",
+        text="Reconciliation run posted — no action needed."
+        if proposal is None
+        else "Reconciliation run posted — awaiting confirmation.",
+    )
 
 
 @app.event("reaction_added")

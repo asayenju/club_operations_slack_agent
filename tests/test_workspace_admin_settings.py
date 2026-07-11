@@ -65,6 +65,7 @@ def test_get_returns_defaults_for_unconfigured_workspace():
     assert settings.drive_sync_admin_user_ids is None
     assert settings.reconciliation_approval_user_ids is None
     assert settings.reconciliation_approval_reaction == "white_check_mark"
+    assert settings.reconciliation_channel_id is None
     assert settings.app_env == "production"
 
 
@@ -180,3 +181,14 @@ def test_two_workspaces_have_independent_admin_lists():
 
     assert store.get("T_A").drive_sync_admin_user_ids == "U_A,U_A2"
     assert store.get("T_B").drive_sync_admin_user_ids == "U_B"
+
+
+def test_reconciliation_channel_is_configured_per_workspace():
+    supabase = _FakeSupabase()
+    store = WorkspaceAdminSettingsStore(supabase)
+
+    store.set_reconciliation_channel("T_A", "C_RECON_A")
+    store.set_reconciliation_channel("T_B", "C_RECON_B")
+
+    assert store.get("T_A").reconciliation_channel_id == "C_RECON_A"
+    assert store.get("T_B").reconciliation_channel_id == "C_RECON_B"
