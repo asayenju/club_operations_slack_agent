@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings
+from common.google_credentials_store import WorkspaceGoogleCredentialsStore
 from common.slack_ingestion import list_monitored_channels, run_channel_backfill
 from common.slack_installation_store import SupabaseInstallationStore
 from common.slack_scopes import verify_slack_scopes
@@ -71,13 +72,26 @@ async def lifespan(app: FastAPI):
     poll_interval = settings.drive_poll_interval_seconds
     task = None
     if poll_interval > 0:
+        def _poll_all_workspaces() -> None:
+            """Poll every workspace with a connected Google account (#66) --
+            Drive is no longer a single shared account."""
+            workspace_ids = WorkspaceGoogleCredentialsStore(_get_supabase()).list_workspace_ids()
+            if not workspace_ids:
+                print(
+                    "[poll] no workspaces have connected Google Drive yet -- "
+                    "run /connect-folder in Slack to connect one"
+                )
+                return
+            for workspace_id in workspace_ids:
+                try:
+                    DriveSyncService.from_settings(workspace_id).poll_changes()
+                except Exception as exc:
+                    print(f"[poll] drive sync failed for {workspace_id}: {exc}")
+
         async def _poll_loop():
             while True:
                 await asyncio.sleep(poll_interval)
-                try:
-                    await asyncio.to_thread(DriveSyncService.from_settings().poll_changes)
-                except Exception as exc:
-                    print(f"[poll] drive sync failed: {exc}")
+                await asyncio.to_thread(_poll_all_workspaces)
         task = asyncio.create_task(_poll_loop())
 
     scheduler.add_job(
@@ -111,6 +125,7 @@ class DocIngestRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     doc_id: str = Field(min_length=1)
+    workspace_id: str = Field(min_length=1)
 
 
 class DocIngestResponse(BaseModel):
@@ -149,7 +164,7 @@ def require_api_key(x_ingestion_api_key: str | None = Header(default=None)) -> N
     dependencies=[Depends(require_api_key)],
 )
 def ingest_doc_endpoint(request: DocIngestRequest) -> IngestionResult:
-    return ingest_doc(request.doc_id)
+    return ingest_doc(request.doc_id, request.workspace_id)
 
 
 @app.post(
@@ -165,6 +180,7 @@ async def ingest_document_webhook(
 
 class SheetIngestRequest(BaseModel):
     sheet_id: str = Field(min_length=1)
+    workspace_id: str = Field(min_length=1)
 
 
 @app.post(
@@ -173,19 +189,20 @@ class SheetIngestRequest(BaseModel):
     dependencies=[Depends(require_api_key)],
 )
 def ingest_sheet_endpoint(request: SheetIngestRequest) -> Any:
-    return ingest_sheet(request.sheet_id)
+    return ingest_sheet(request.sheet_id, request.workspace_id)
 
 
 class FolderRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     folder: str = Field(min_length=1)
+    workspace_id: str = Field(min_length=1)
     user_id: str | None = None
 
 
 @app.post("/drive/connect", dependencies=[Depends(require_api_key)])
 def connect_drive_folder(request: FolderRequest) -> dict[str, Any]:
-    result = DriveSyncService.from_settings().connect_folder(
+    result = DriveSyncService.from_settings(request.workspace_id).connect_folder(
         request.folder,
         connected_by=request.user_id,
     )
@@ -194,8 +211,14 @@ def connect_drive_folder(request: FolderRequest) -> dict[str, Any]:
 
 @app.post("/drive/disconnect", dependencies=[Depends(require_api_key)])
 def disconnect_drive_folder(request: FolderRequest) -> dict[str, Any]:
-    purged = DriveSyncService.from_settings().disconnect_folder(request.folder)
+    purged = DriveSyncService.from_settings(request.workspace_id).disconnect_folder(request.folder)
     return {"status": "disconnected", "purged_sources": purged}
+
+
+class WorkspaceRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    workspace_id: str = Field(min_length=1)
 
 
 @app.post(
@@ -203,16 +226,16 @@ def disconnect_drive_folder(request: FolderRequest) -> dict[str, Any]:
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(require_api_key)],
 )
-def sync_drive_folders(background_tasks: BackgroundTasks) -> dict[str, str]:
-    background_tasks.add_task(DriveSyncService.from_settings().poll_changes)
+def sync_drive_folders(request: WorkspaceRequest, background_tasks: BackgroundTasks) -> dict[str, str]:
+    background_tasks.add_task(DriveSyncService.from_settings(request.workspace_id).poll_changes)
     return {"status": "accepted", "source": "drive"}
 
 
 @app.get("/drive/folders", dependencies=[Depends(require_api_key)])
-def list_drive_folders() -> list[dict[str, Any]]:
+def list_drive_folders(workspace_id: str) -> list[dict[str, Any]]:
     return [
         asdict(folder)
-        for folder in DriveSyncService.from_settings().list_connected_folders()
+        for folder in DriveSyncService.from_settings(workspace_id).list_connected_folders()
     ]
 
 
@@ -225,8 +248,8 @@ async def ingest_spreadsheet_webhook(
     background_tasks: BackgroundTasks,
     payload: dict[str, Any] | None = Body(default=None),
 ) -> dict[str, str]:
-    if payload and payload.get("sheet_id"):
-        background_tasks.add_task(ingest_sheet, payload["sheet_id"])
+    if payload and payload.get("sheet_id") and payload.get("workspace_id"):
+        background_tasks.add_task(ingest_sheet, payload["sheet_id"], payload["workspace_id"])
     return {"status": "accepted", "source": "spreadsheets"}
 
 

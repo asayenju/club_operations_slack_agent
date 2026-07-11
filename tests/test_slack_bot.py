@@ -18,7 +18,6 @@ def load_bot_module(monkeypatch):
     spec = importlib.util.spec_from_file_location("student_org_agent_app", module_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    monkeypatch.setattr(module, "configured_workspace_id", lambda: "T123")
     monkeypatch.setattr(
         module,
         "get_ingestion_settings",
@@ -388,9 +387,19 @@ def test_handle_decide_command_reports_failures_ephemerally(monkeypatch):
 
 
 
+def _stub_drive_connected(bot, monkeypatch):
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceGoogleCredentialsStore",
+        lambda supabase: SimpleNamespace(is_connected=lambda workspace_id: True),
+    )
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+
+
 def test_handle_connect_folder_command_reports_summary(monkeypatch):
     bot = load_bot_module(monkeypatch)
     responses = []
+    _stub_drive_connected(bot, monkeypatch)
     service = SimpleNamespace(
         connect_folder=lambda folder, connected_by: SimpleNamespace(
             folder_name="Club Files",
@@ -401,7 +410,7 @@ def test_handle_connect_folder_command_reports_summary(monkeypatch):
     monkeypatch.setattr(
         bot.DriveSyncService,
         "from_settings",
-        lambda: service,
+        lambda workspace_id: service,
     )
 
     bot.handle_connect_folder_command(
@@ -427,11 +436,12 @@ def test_handle_connect_folder_command_reports_summary(monkeypatch):
 def test_handle_disconnect_folder_command_purges_sources(monkeypatch):
     bot = load_bot_module(monkeypatch)
     responses = []
+    _stub_drive_connected(bot, monkeypatch)
     service = SimpleNamespace(disconnect_folder=lambda folder: 2)
     monkeypatch.setattr(
         bot.DriveSyncService,
         "from_settings",
-        lambda: service,
+        lambda workspace_id: service,
     )
 
     bot.handle_disconnect_folder_command(
@@ -449,13 +459,28 @@ def test_handle_disconnect_folder_command_purges_sources(monkeypatch):
     ]
 
 
-def test_handle_connect_folder_command_rejects_wrong_workspace(monkeypatch):
+def test_handle_connect_folder_command_prompts_connection_when_drive_not_connected(monkeypatch):
+    """Issue #66: no more single-workspace restriction -- any workspace can
+    use /connect-folder once IT has connected its own Google Drive. If it
+    hasn't yet, show a connection link instead of a rejection."""
     bot = load_bot_module(monkeypatch)
     responses = []
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceGoogleCredentialsStore",
+        lambda supabase: SimpleNamespace(is_connected=lambda workspace_id: False),
+    )
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "GoogleOAuthStateStore",
+        lambda supabase: SimpleNamespace(create=lambda workspace_id, user_id, **kwargs: "opaque-test-token"),
+    )
+    monkeypatch.setattr(bot, "build_authorization_url", lambda state: f"https://accounts.google.com/auth?state={state}")
 
     bot.handle_connect_folder_command(
         ack=lambda: responses.append({"acked": True}),
-        command={"team_id": "T_OTHER", "text": "root"},
+        command={"team_id": "T_ANY_WORKSPACE", "text": "root", "user_id": "U1"},
         respond=lambda **kwargs: responses.append(kwargs),
     )
 
@@ -463,9 +488,35 @@ def test_handle_connect_folder_command_rejects_wrong_workspace(monkeypatch):
         {"acked": True},
         {
             "response_type": "ephemeral",
-            "text": "Google Drive is not yet connected for this workspace.",
+            "text": "Connect Google Drive for this workspace first: "
+                    "https://accounts.google.com/auth?state=opaque-test-token",
         },
     ]
+
+
+def test_handle_connect_folder_command_works_for_any_workspace_once_connected(monkeypatch):
+    """A workspace other than whatever used to be the single configured one
+    now works fine, as long as its own Drive is connected."""
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    _stub_drive_connected(bot, monkeypatch)
+    calls = []
+    service = SimpleNamespace(
+        connect_folder=lambda folder, connected_by: calls.append(folder) or SimpleNamespace(
+            folder_name="Some Folder", discovered=1, ingested=1,
+        )
+    )
+    monkeypatch.setattr(bot.DriveSyncService, "from_settings", lambda workspace_id: service)
+
+    bot.handle_connect_folder_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_ANY_WORKSPACE", "text": "root", "user_id": "U1"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert calls == ["root"]
+    assert responses[1]["response_type"] == "ephemeral"
+    assert "Connected" in responses[1]["text"]
 
 
 class FakeMemoryAnswerService:

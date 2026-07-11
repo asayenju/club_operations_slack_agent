@@ -4,7 +4,6 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, TypedDict
 
-from common.config import get_ingestion_settings
 from ingestion_api.documents_repo import (
     delete_missing,
     existing_keys,
@@ -96,14 +95,12 @@ def build_chunks(sections: list[DocumentSection]) -> list[DocumentChunk]:
     return list(chunks_by_key.values())
 
 
-def ingest_doc(doc_id: str, modified_time: str | None = None) -> IngestionResult:
+def ingest_doc(doc_id: str, workspace_id: str, modified_time: str | None = None) -> IngestionResult:
     normalized_doc_id = doc_id.strip()
     if not normalized_doc_id:
         raise ValueError("doc_id must not be empty")
 
-    settings = get_ingestion_settings()
-    workspace_id = settings.required_workspace_id
-    title, sections = extract_sections(fetch_doc(normalized_doc_id))
+    title, sections = extract_sections(fetch_doc(normalized_doc_id, workspace_id))
     chunks = build_chunks(sections)
 
     seen_keys = existing_keys(workspace_id, GOOGLE_DOC_SOURCE, normalized_doc_id)
@@ -170,10 +167,10 @@ def ingest_doc(doc_id: str, modified_time: str | None = None) -> IngestionResult
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        print("usage: python -m ingestion_api.ingest_docs <google_doc_id>")
+    if len(sys.argv) != 3:
+        print("usage: python -m ingestion_api.ingest_docs <google_doc_id> <workspace_id>")
         raise SystemExit(1)
-    ingest_doc(sys.argv[1])
+    ingest_doc(sys.argv[1], sys.argv[2])
 
 
 if __name__ == "__main__":

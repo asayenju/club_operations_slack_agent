@@ -11,6 +11,13 @@ from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings, get_slack_settings
+from common.google_credentials_store import WorkspaceGoogleCredentialsStore
+from common.google_oauth_state_store import GoogleOAuthStateStore
+from common.google_oauth_flow import (
+    GOOGLE_DRIVE_SCOPES,
+    build_authorization_url,
+    exchange_code_for_refresh_token,
+)
 from common.slack_ingestion import (
     delete_monitored_channels_for_workspace,
     delete_slack_message,
@@ -341,35 +348,6 @@ def handle_unregister_command(ack, command, respond):
     )
 
 
-def configured_workspace_id() -> str:
-    """The one workspace Google Drive is currently connected for.
-
-    Every other command trusts Bolt's own OAuth-based authorization (issue
-    #61/#63): if a command handler runs at all, the InstallationStore already
-    confirmed that team_id is genuinely installed, so there's nothing left to
-    gate. Google Drive integration is the one remaining exception --
-    ingestion_api/drive_sync.py's DriveSyncService still hardcodes a single
-    workspace_id (this one) because there's only one shared Google account
-    today. #66 replaces this with a per-workspace Google OAuth flow; once
-    that lands, ensure_single_drive_workspace below (and this function) can
-    go away entirely.
-    """
-    return get_ingestion_settings().required_workspace_id
-
-
-def ensure_single_drive_workspace(command, respond) -> bool:
-    """Restrict Drive-folder commands to the one workspace Drive is
-    connected for, pending #66. Every other command no longer needs this --
-    see configured_workspace_id's docstring."""
-    if command.get("team_id") == configured_workspace_id():
-        return True
-    respond(
-        response_type="ephemeral",
-        text="Google Drive is not yet connected for this workspace.",
-    )
-    return False
-
-
 def ensure_drive_sync_admin(command, respond) -> bool:
     settings = get_ingestion_settings()
     configured = settings.drive_sync_admin_user_ids
@@ -397,12 +375,39 @@ def ensure_drive_sync_admin(command, respond) -> bool:
     return False
 
 
+def ensure_drive_connected(command, respond) -> bool:
+    """Each workspace connects its own Google account (issue #66) -- no more
+    single shared Drive credential. If this workspace hasn't completed that
+    OAuth flow yet, send its admin a connection link instead of failing
+    deeper inside DriveSyncService."""
+    workspace_id = command["team_id"]
+    supabase = _get_supabase()
+    store = WorkspaceGoogleCredentialsStore(supabase)
+    if store.is_connected(workspace_id):
+        return True
+    try:
+        state = GoogleOAuthStateStore(supabase).create(workspace_id, command.get("user_id"))
+        url = build_authorization_url(state)
+    except Exception:
+        logger.exception("Failed to build Google authorization URL")
+        respond(
+            response_type="ephemeral",
+            text="I couldn't start the Google Drive connection right now.",
+        )
+        return False
+    respond(
+        response_type="ephemeral",
+        text=f"Connect Google Drive for this workspace first: {url}",
+    )
+    return False
+
+
 @app.command("/connect-folder")
 def handle_connect_folder_command(ack, command, respond):
     ack()
-    if not ensure_single_drive_workspace(command, respond):
-        return
     if not ensure_drive_sync_admin(command, respond):
+        return
+    if not ensure_drive_connected(command, respond):
         return
     folder_reference = str(command.get("text", "")).strip()
     if not folder_reference:
@@ -413,11 +418,11 @@ def handle_connect_folder_command(ack, command, respond):
         return
 
     try:
-        result = DriveSyncService.from_settings().connect_folder(
+        result = DriveSyncService.from_settings(command["team_id"]).connect_folder(
             folder_reference,
             connected_by=command.get("user_id"),
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("Failed to connect Drive folder")
         respond(
             response_type="ephemeral",
@@ -438,9 +443,9 @@ def handle_connect_folder_command(ack, command, respond):
 @app.command("/disconnect-folder")
 def handle_disconnect_folder_command(ack, command, respond):
     ack()
-    if not ensure_single_drive_workspace(command, respond):
-        return
     if not ensure_drive_sync_admin(command, respond):
+        return
+    if not ensure_drive_connected(command, respond):
         return
     folder_reference = str(command.get("text", "")).strip()
     if not folder_reference:
@@ -451,10 +456,10 @@ def handle_disconnect_folder_command(ack, command, respond):
         return
 
     try:
-        purged = DriveSyncService.from_settings().disconnect_folder(
+        purged = DriveSyncService.from_settings(command["team_id"]).disconnect_folder(
             folder_reference
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("Failed to disconnect Drive folder")
         respond(
             response_type="ephemeral",
@@ -640,6 +645,62 @@ async def slack_oauth_redirect(request: Request):
 @http_app.get("/health")
 async def health():
     return {"status": "ok", "service": "slack-bot"}
+
+
+# ---------------------------------------------------------------------------
+# Google Drive OAuth (issue #66)
+#
+# Mirrors the Slack OAuth install flow above: one registered Google OAuth
+# client shared by the whole app, each workspace's admin completes their own
+# consent. `state` is an unguessable, single-use token issued by
+# GoogleOAuthStateStore.create() and redeemed via .consume() below -- the
+# callback never trusts client-supplied team_id/user_id directly (issue #74
+# review, Aman: a plain "{team_id}|{user_id}" state was forgeable).
+# ---------------------------------------------------------------------------
+
+@http_app.get("/google/oauth_redirect")
+async def google_oauth_redirect(request: Request):
+    from fastapi.responses import PlainTextResponse
+
+    params = request.query_params
+    error = params.get("error")
+    if error:
+        return PlainTextResponse(f"Google authorization failed: {error}", status_code=400)
+
+    code = params.get("code")
+    state = params.get("state") or ""
+    if not code or not state:
+        return PlainTextResponse("Missing code or state in callback.", status_code=400)
+
+    supabase = _get_supabase()
+    consumed = GoogleOAuthStateStore(supabase).consume(state)
+    if consumed is None:
+        # Covers unknown, forged, expired, and already-used state tokens
+        # alike -- the caller doesn't get to distinguish which, since that
+        # itself would leak information to whoever is probing this endpoint.
+        return PlainTextResponse(
+            "This connection link is invalid, expired, or already used. Run /connect-folder again.",
+            status_code=400,
+        )
+    workspace_id, user_id = consumed
+
+    try:
+        refresh_token = exchange_code_for_refresh_token(code)
+    except Exception:
+        logger.exception(f"[google_oauth] token exchange failed for workspace {workspace_id}")
+        return PlainTextResponse(
+            "Couldn't complete the Google connection. Try /connect-folder again.",
+            status_code=502,
+        )
+
+    store = WorkspaceGoogleCredentialsStore(supabase)
+    store.save(
+        workspace_id,
+        refresh_token,
+        GOOGLE_DRIVE_SCOPES,
+        connected_by_user_id=user_id or None,
+    )
+    return PlainTextResponse("Google Drive connected. You can close this tab and run /connect-folder again in Slack.")
 
 
 if __name__ == "__main__":

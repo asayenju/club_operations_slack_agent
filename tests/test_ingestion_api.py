@@ -59,10 +59,10 @@ def test_ingest_doc_endpoint_runs_ingestion(monkeypatch):
         "deleted": 0,
         "total": 3,
     }
-    monkeypatch.setattr("ingestion_api.main.ingest_doc", lambda doc_id: expected)
+    monkeypatch.setattr("ingestion_api.main.ingest_doc", lambda doc_id, workspace_id: expected)
     client = build_client(monkeypatch)
 
-    response = client.post("/ingest/doc", json={"doc_id": "doc-123"})
+    response = client.post("/ingest/doc", json={"doc_id": "doc-123", "workspace_id": "T123"})
 
     assert response.status_code == 200
     assert response.json() == expected
@@ -98,13 +98,13 @@ def test_connect_drive_folder_endpoint(monkeypatch):
     )
     monkeypatch.setattr(
         "ingestion_api.main.DriveSyncService.from_settings",
-        lambda: service,
+        lambda workspace_id: service,
     )
     client = build_client(monkeypatch)
 
     response = client.post(
         "/drive/connect",
-        json={"folder": "root", "user_id": "U123"},
+        json={"folder": "root", "user_id": "U123", "workspace_id": "T123"},
     )
 
     assert response.status_code == 200
@@ -115,11 +115,11 @@ def test_disconnect_drive_folder_endpoint(monkeypatch):
     service = SimpleNamespace(disconnect_folder=lambda folder: 2)
     monkeypatch.setattr(
         "ingestion_api.main.DriveSyncService.from_settings",
-        lambda: service,
+        lambda workspace_id: service,
     )
     client = build_client(monkeypatch)
 
-    response = client.post("/drive/disconnect", json={"folder": "root"})
+    response = client.post("/drive/disconnect", json={"folder": "root", "workspace_id": "T123"})
 
     assert response.status_code == 200
     assert response.json() == {
@@ -133,11 +133,11 @@ def test_sync_drive_endpoint_queues_poll(monkeypatch):
     service = SimpleNamespace(poll_changes=lambda: calls.append("polled"))
     monkeypatch.setattr(
         "ingestion_api.main.DriveSyncService.from_settings",
-        lambda: service,
+        lambda workspace_id: service,
     )
     client = build_client(monkeypatch)
 
-    response = client.post("/drive/sync")
+    response = client.post("/drive/sync", json={"workspace_id": "T123"})
 
     assert response.status_code == 202
     assert response.json() == {"status": "accepted", "source": "drive"}
