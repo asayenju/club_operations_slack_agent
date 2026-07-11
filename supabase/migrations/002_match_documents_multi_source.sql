@@ -1,14 +1,25 @@
 -- Migration: change filter_source (text) -> filter_sources (text[]) in match_documents RPC
 -- Run once in Supabase SQL Editor (Database → SQL Editor).
 
+-- PostgreSQL cannot change a function's OUT-row type with CREATE OR REPLACE,
+-- and the old scalar filter_source overload otherwise remains visible to
+-- PostgREST. Drop both signatures transactionally before recreating the one
+-- canonical array-filter function.
+DROP FUNCTION IF EXISTS public.match_documents(
+  extensions.vector, integer, text, text
+);
+DROP FUNCTION IF EXISTS public.match_documents(
+  extensions.vector, integer, text, text[]
+);
+
 CREATE OR REPLACE FUNCTION match_documents(
-  query_embedding  vector(1024),
+  query_embedding  extensions.vector(1024),
   match_count      int     DEFAULT 10,
   filter_workspace text    DEFAULT NULL,
   filter_sources   text[]  DEFAULT NULL
 )
 RETURNS TABLE (
-  id           uuid,
+  id           bigint,
   workspace_id text,
   source       text,
   source_id    text,
@@ -19,7 +30,9 @@ RETURNS TABLE (
   metadata     jsonb,
   similarity   float8
 )
-LANGUAGE sql STABLE AS $$
+LANGUAGE sql STABLE
+SET search_path = public, extensions
+AS $$
   SELECT
     id,
     workspace_id,

@@ -3,7 +3,7 @@
 ## Monitored channels
 
 Channels to backfill/ingest are configured in the `monitored_channels` Supabase
-table (see `supabase/migrations/20260703_monitored_channels.sql`), not
+table (see `supabase/migrations/20260703000100_monitored_channels.sql`), not
 environment variables — this lets the channel list change at runtime without
 a redeploy.
 
@@ -78,4 +78,4 @@ declared scopes until Slack applies the app update.
   on `documents.embedding` from manual dashboard changes (e.g. both
   `documents_embedding_idx` and `documents_embedding_hnsw_idx`) —
   redundant write-time cost. Check `pg_indexes` for the `documents` table
-  before running `supabase/migrations/20260703_drop_duplicate_embedding_index.sql`.
+  before running `supabase/migrations/20260703000000_drop_duplicate_embedding_index.sql`.
