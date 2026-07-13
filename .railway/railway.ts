@@ -45,7 +45,15 @@ const source = github("asayenju/club_operations_slack_agent", { branch: "main" }
 export default defineRailway(() => {
   const app = service("app", {
     source,
-    build: { builder: "RAILPACK" },
+    // buildCommand is a no-op (`true`) rather than unset: an earlier config
+    // mistakenly set it to the literal string "RAILPACK" (the string form of
+    // `build` sets buildCommand, not the builder), and `railway config apply`
+    // cannot clear buildCommand back to null -- it reports success but the
+    // stale value persists (verified via `railway config pull --json`).
+    // Railpack auto-runs `pip install -r requirements.txt`, so no real build
+    // step is needed; overwriting with `true` is the reliable way to stop it
+    // running `sh -c RAILPACK` (command-not-found, exit 127).
+    build: { builder: "RAILPACK", buildCommand: "true" },
     start: "python student-org-agent/app.py",
     env: {
       PYTHONPATH: ".",
@@ -55,7 +63,15 @@ export default defineRailway(() => {
 
   const ingestion = service("ingestion", {
     source,
-    build: { builder: "RAILPACK" },
+    // buildCommand is a no-op (`true`) rather than unset: an earlier config
+    // mistakenly set it to the literal string "RAILPACK" (the string form of
+    // `build` sets buildCommand, not the builder), and `railway config apply`
+    // cannot clear buildCommand back to null -- it reports success but the
+    // stale value persists (verified via `railway config pull --json`).
+    // Railpack auto-runs `pip install -r requirements.txt`, so no real build
+    // step is needed; overwriting with `true` is the reliable way to stop it
+    // running `sh -c RAILPACK` (command-not-found, exit 127).
+    build: { builder: "RAILPACK", buildCommand: "true" },
     start: "uvicorn ingestion_api.main:app --host 0.0.0.0 --port 8000",
     env: {
       PYTHONPATH: ".",
@@ -65,7 +81,15 @@ export default defineRailway(() => {
 
   const worker = service("worker", {
     source,
-    build: { builder: "RAILPACK" },
+    // buildCommand is a no-op (`true`) rather than unset: an earlier config
+    // mistakenly set it to the literal string "RAILPACK" (the string form of
+    // `build` sets buildCommand, not the builder), and `railway config apply`
+    // cannot clear buildCommand back to null -- it reports success but the
+    // stale value persists (verified via `railway config pull --json`).
+    // Railpack auto-runs `pip install -r requirements.txt`, so no real build
+    // step is needed; overwriting with `true` is the reliable way to stop it
+    // running `sh -c RAILPACK` (command-not-found, exit 127).
+    build: { builder: "RAILPACK", buildCommand: "true" },
     start: "python -m tools.drive_poll_worker",
     env: {
       PYTHONPATH: ".",
