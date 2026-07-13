@@ -104,7 +104,7 @@ instead of an env var.
 Run this migration before installing into any workspace:
 
 ```text
-supabase/migrations/20260708_slack_installations.sql
+supabase/migrations/20260708000100_slack_installations.sql
 ```
 
 **Upgrading a workspace that's already running on the old static
@@ -199,7 +199,7 @@ and interactivity work fine.
 Run this migration before enabling account registration:
 
 ```text
-supabase/migrations/20260623_user_google_accounts.sql
+supabase/migrations/20260623000100_user_google_accounts.sql
 ```
 
 Members can privately link any valid Google-account email to their own Slack
@@ -242,9 +242,10 @@ single shared club account or local token file anymore.
 Before using folder sync, run these migrations in the Supabase SQL editor:
 
 ```text
-supabase/migrations/20260623_drive_folder_sync.sql
-supabase/migrations/20260708_workspace_google_credentials.sql
-supabase/migrations/20260708_workspace_admin_settings.sql
+supabase/migrations/20260623000000_drive_folder_sync.sql
+supabase/migrations/20260708000300_workspace_google_credentials.sql
+supabase/migrations/20260708000200_workspace_admin_settings.sql
+supabase/migrations/20260709000000_google_oauth_states.sql
 ```
 
 **Google authentication is a single shared account.** All workspaces read
@@ -474,7 +475,7 @@ will crash-loop on startup with
 `Could not find the table 'public.monitored_channels' in the schema cache`:
 
 ```text
-supabase/migrations/20260703_monitored_channels.sql
+supabase/migrations/20260703000100_monitored_channels.sql
 ```
 
 The bot does **not** scan or ingest the workspace's full Slack history. Only
@@ -517,8 +518,9 @@ Scopes/events required for Slack ingestion specifically (a subset of the full
 bot manifest at `student-org-agent/manifest.json`, which also grants scopes
 for other features like `/decide` and `/ask`): `channels:history` and
 `im:history`, with event subscriptions `message.channels` and `message.im`.
-**Private channels are not supported today** — that would require adding
-`groups:history` and the `message.groups` event, then reinstalling the app.
+Private monitored channels additionally require `groups:history` and the
+`message.groups` event; both are declared in the current manifest, so update
+or reinstall the Slack app after applying it.
 
 Manual verification against a test workspace:
 
@@ -543,7 +545,7 @@ any write-back behavior runs. Run this migration before enabling proposal
 workflows:
 
 ```text
-supabase/migrations/20260701_reconciliation_proposals.sql
+supabase/migrations/20260701000000_reconciliation_proposals.sql
 ```
 
 The proposal model tracks:
@@ -563,12 +565,30 @@ not provide an explicit expiry timestamp. Run `expire_due(workspace_id)`
 regularly from the reconciliation scheduler or maintenance job to mark overdue
 pending proposals expired before processing late approvals.
 
-Proposal confirmation is controlled by per-workspace user and reaction
-configuration (issue #67, `workspace_admin_settings` table:
-`reconciliation_approval_user_ids`, `reconciliation_approval_reaction`) — not
-a deployment-wide env var. The Slack user who completed the OAuth install is
-seeded as that workspace's default approver automatically, with the reaction
-defaulting to Slack's `white_check_mark` name for the checkmark emoji.
+Proposal confirmation is controlled by per-workspace configuration (issue
+#67, `workspace_admin_settings` table: `reconciliation_approval_user_ids`,
+`reconciliation_approval_reaction`, and `reconciliation_channel_id`) — not a
+deployment-wide env var. Apply
+`supabase/migrations/20260711000000_workspace_reconciliation_channel.sql`, then set
+the designated review channel for each workspace, for example:
+
+```sql
+update public.workspace_admin_settings
+set reconciliation_channel_id = 'C0123456789'
+where workspace_id = 'T0123456789';
+```
+
+The Slack user who completed the OAuth install is seeded as that workspace's
+default approver automatically, with the reaction defaulting to Slack's
+`white_check_mark` name for the checkmark emoji. Trigger a manual run with:
+
+```text
+/reconcile-run spring formal budget
+```
+
+The command uses that workspace's OAuth-resolved bot client and posts to its
+configured review channel. If no review channel is configured, it returns an
+ephemeral configuration error instead of posting to the command's channel.
 
 Only that workspace's configured committee lead Slack user IDs can confirm
 its pending proposals. Wrong reactions, unconfigured users, missing approval

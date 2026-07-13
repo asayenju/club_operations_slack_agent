@@ -54,6 +54,13 @@
         "usage_hint": "What is our current budget?",
         "should_escape": false,
         "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
+      },
+      {
+        "command": "/reconcile-run",
+        "description": "Trigger reconciliation with any topics",
+        "usage_hint": "finance",
+        "should_escape": false,
+        "url": "https://YOUR_PUBLIC_DOMAIN/slack/events"
       }
     ]
   },

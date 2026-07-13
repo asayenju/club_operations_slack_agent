@@ -753,6 +753,90 @@ def test_reconciliation_reaction_event_acks_before_handling(monkeypatch):
     ]
 
 
+def test_reconcile_run_uses_request_workspace_client_and_configured_channel(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    calls = []
+    responses = []
+    request_client = object()
+    proposal = object()
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                reconciliation_channel_id="C_RECON"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        bot,
+        "run_reconciliation",
+        lambda **kwargs: calls.append(kwargs) or proposal,
+    )
+    service = object()
+    monkeypatch.setattr(bot, "build_reconciliation_proposal_service", lambda: service)
+
+    bot.handle_reconcile_run_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_OTHER", "channel_id": "C_COMMAND", "text": "finance"},
+        client=request_client,
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert calls == [
+        {
+            "workspace_id": "T_OTHER",
+            "topic": "finance",
+            "slack_client": request_client,
+            "slack_channel_id": "C_RECON",
+            "proposal_service": service,
+        }
+    ]
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "Reconciliation run posted — awaiting confirmation.",
+        },
+    ]
+
+
+def test_reconcile_run_requires_a_workspace_reconciliation_channel(monkeypatch):
+    bot = load_bot_module(monkeypatch)
+    responses = []
+    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        bot,
+        "WorkspaceAdminSettingsStore",
+        lambda supabase: SimpleNamespace(
+            get=lambda workspace_id, app_env="development": SimpleNamespace(
+                reconciliation_channel_id=None
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        bot,
+        "run_reconciliation",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+
+    bot.handle_reconcile_run_command(
+        ack=lambda: responses.append({"acked": True}),
+        command={"team_id": "T_OTHER", "channel_id": "C_COMMAND", "text": "finance"},
+        client=object(),
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {"acked": True},
+        {
+            "response_type": "ephemeral",
+            "text": "A reconciliation review channel is not configured for this workspace.",
+        },
+    ]
+
+
 def test_reconciliation_reaction_confirms_matching_proposal(monkeypatch):
     bot = load_bot_module(monkeypatch)
     service = FakeReconciliationService(
