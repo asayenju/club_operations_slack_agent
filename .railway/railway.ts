@@ -1,46 +1,75 @@
-import { defineRailway, github, project, service } from "railway/iac";
+import { defineRailway, github, preserve, project, service } from "railway/iac";
 
 // Deploys the same repo/source three times as separate Railway services,
 // differing only by start command -- Railway's equivalent of Fly's
-// [processes] table. No Dockerfile: Railpack auto-detects Python from the
-// root requirements.txt (student-org-agent/requirements.txt is dev-tooling
-// for the separate `slack` CLI, not imported by any running code, so it's
-// intentionally not referenced here).
+// [processes] table. Explicitly forced to RAILPACK: a Dockerfile exists at
+// the repo root (kept for other tooling), and Railway's build-detection
+// silently prefers it over Railpack when `build` isn't set -- confirmed via
+// a live deploy's metadata showing "builder": "DOCKERFILE" despite this file
+// never requesting Docker. Root requirements.txt is all Railpack needs
+// (student-org-agent/requirements.txt is dev-tooling for the separate
+// `slack` CLI, not imported by any running code).
 //
 // PYTHONPATH=. is required on every service: `python student-org-agent/app.py`
 // only puts that subdirectory on sys.path by default, not the repo root, so
 // `from common.config import ...` etc. fail without it (same reason local
 // runs this session needed `PYTHONPATH=$PWD`).
 //
-// Secrets (SLACK_BOT_TOKEN, APP_ENCRYPTION_KEY, GOOGLE_TOKEN_JSON_B64, etc.)
-// are deliberately NOT declared here -- this file is committed to git. They
-// are set separately per service via `railway variable set` / `variable
-// import`, piped through stdin, never written into source.
+// Secret VALUES are deliberately not written here -- this file is committed
+// to git. They were set out-of-band via `railway variable set --stdin` per
+// service. Each key is still declared below wrapped in preserve() -- leaving
+// a key out entirely tells `railway config apply` the variable is unwanted
+// and to delete it; preserve() means "this key is managed elsewhere, keep
+// whatever value is already set."
+const SECRET_KEYS = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_KEY",
+  "WORKSPACE_ID",
+  "VOYAGE_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "APP_ENCRYPTION_KEY",
+  "SLACK_APP_TOKEN",
+  "SLACK_BOT_TOKEN",
+  "SLACK_CLIENT_ID",
+  "SLACK_CLIENT_SECRET",
+  "SLACK_SIGNING_SECRET",
+  "GOOGLE_TOKEN_JSON_B64",
+] as const;
+
+function preservedSecrets(): Record<string, ReturnType<typeof preserve>> {
+  return Object.fromEntries(SECRET_KEYS.map((key) => [key, preserve()]));
+}
 
 const source = github("asayenju/club_operations_slack_agent", { branch: "main" });
 
 export default defineRailway(() => {
   const app = service("app", {
     source,
+    build: { builder: "RAILPACK" },
     start: "python student-org-agent/app.py",
     env: {
       PYTHONPATH: ".",
+      ...preservedSecrets(),
     },
   });
 
   const ingestion = service("ingestion", {
     source,
+    build: { builder: "RAILPACK" },
     start: "uvicorn ingestion_api.main:app --host 0.0.0.0 --port 8000",
     env: {
       PYTHONPATH: ".",
+      ...preservedSecrets(),
     },
   });
 
   const worker = service("worker", {
     source,
+    build: { builder: "RAILPACK" },
     start: "python -m tools.drive_poll_worker",
     env: {
       PYTHONPATH: ".",
+      ...preservedSecrets(),
     },
   });
 
