@@ -540,7 +540,11 @@ def _get_monitored_channels(workspace_id: str) -> dict[str, str]:
 
 @app.event("message")
 def handle_message(event, context, logger):
-    workspace_id = context["team_id"]
+    # HTTP mode populates context["team_id"]; Socket Mode message events don't,
+    # so fall back to the event's own team field.
+    workspace_id = context.get("team_id") or event.get("team")
+    if not workspace_id:
+        return
     channel_id = event.get("channel", "")
     monitored = _get_monitored_channels(workspace_id)
     if channel_id not in monitored:
