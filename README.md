@@ -1,647 +1,450 @@
-# Club Operations Ingestion API
-
-A FastAPI service for future student organization document and spreadsheet
-ingestion webhooks.
-
-## Requirements
-
-- Docker and Docker Compose
-
-## Local setup
-
-Create a local environment file:
-
-```bash
-cp .env.example .env
-```
-
-Fill in the required values in `.env`, then run:
-
-```bash
-docker compose up --build
-```
-
-The ingestion API will be available at `http://localhost:8000`.
-The Slack bot serves events, slash commands, interactivity, and OAuth
-install/redirect over HTTP (not Socket Mode, and not a single static bot
-token) — see [Multi-workspace install (OAuth)](#multi-workspace-install-oauth)
-below.
-
-The Slack bot responds to messages containing `hello` and supports `/decide`
-for recording club decisions into the existing Supabase `documents` table.
-Decisions are stored as sentence-aware chunks and embedded with Voyage before
-insertion. Slack Real-time Search is implemented separately under `tools/` as
-a function/tool for a future LLM integration. The bot also backfills and
-ingests messages from explicitly monitored channels in the background — see
-[Slack message ingestion](#slack-message-ingestion) below.
-
-Required `.env` values for `/decide`:
-
-```bash
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-VOYAGE_API_KEY=...
-VOYAGE_EMBED_MODEL=...
-VOYAGE_EMBED_DIMENSION=...
-```
-
-`SUPABASE_SERVICE_KEY` is also accepted as an alias for
-`SUPABASE_SERVICE_ROLE_KEY`. If `VOYAGE_EMBED_MODEL` is not set, the bot uses
-`voyage-3.5-lite`. If `VOYAGE_EMBED_DIMENSION` is not set, the bot requests
-1024-dimensional embeddings.
-
-Do not expose the Supabase service key or `VOYAGE_API_KEY` to clients. They are
-server-side values used by the Slack bot container.
-
-Check the ingestion API:
-
-```bash
-curl http://localhost:8000/health
-```
-
-Run only the Slack bot:
-
-```bash
-docker compose up --build slack-bot
-```
-
-Test the bot by inviting it to a public channel and sending:
-
-```text
-hello
-```
-
-You can also test it in Slack by sending `hello` in a channel or DM where the
-bot is present.
-
-Test `/decide` in Slack:
-
-```text
-/decide We approved $300 for tabling supplies.
-```
-
-On success, the bot posts a public confirmation that echoes the decision. Empty
-input, duplicate content, embedding failures, and database failures are shown
-only to the user who ran the command.
-
-Internally, `/decide` chunks each decision before embedding. Each chunk is stored
-as its own `documents` row with metadata that links it back to the full decision.
-The current implementation uses local deterministic sentence packing rather
-than LangChain, while keeping the chunking boundary isolated for a future
-semantic chunker.
-
-The Slack app manifest includes `/decide`, but the Slack app must be updated or
-reinstalled for the slash command to appear in the workspace.
-
-## Multi-workspace install (OAuth)
-
-The app is installable by more than one Slack workspace at once (issue #61).
-Each installing workspace gets its own bot token via Slack's OAuth flow
-rather than sharing one static `SLACK_BOT_TOKEN` — that env var no longer
-exists. Tokens are stored encrypted in the `slack_installations` table
-instead of an env var.
-
-Run this migration before installing into any workspace:
-
-```text
-supabase/migrations/20260708000100_slack_installations.sql
-```
-
-**Upgrading a workspace that's already running on the old static
-`SLACK_BOT_TOKEN`?** The moment this ships, that env var stops being read at
-all — the bot and ingestion API lose their token entirely, and the only
-normal recovery is completing `/slack/install` again, which isn't reachable
-from outside the host until real public hosting exists (see [HTTP mode +
-hosting](#http-mode--hosting-issue-62)). Avoid that gap by seeding the
-existing token into `slack_installations` directly, before or during that
-deploy:
-
-```bash
-SLACK_BOT_TOKEN=xoxb-your-existing-token python -m tools.seed_slack_installation
-```
-
-This calls `auth.test` with that token to find the workspace's `team_id` and
-writes one encrypted row — no OAuth flow or public endpoint required.
-
-Required `.env` values:
-
-```text
-SLACK_CLIENT_ID=...
-SLACK_CLIENT_SECRET=...
-SLACK_SIGNING_SECRET=...
-SLACK_PORT=3000
-APP_ENCRYPTION_KEY=...
-```
-
-`SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET`/`SLACK_SIGNING_SECRET` come from the
-Slack app's **Basic Information** page — Distribution must be turned on for
-`client_id`/`client_secret` to be visible. `APP_ENCRYPTION_KEY` encrypts
-tokens at rest; generate one with:
-
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-To install into a workspace, visit `http://<host>:<SLACK_PORT>/slack/install`
-(default port `3000`) and complete Slack's OAuth consent screen.
-
-Every command trusts Bolt's own OAuth-based authorization rather than checking
-against a static `WORKSPACE_ID` — if a handler runs at all, the team is
-genuinely installed (issue #63). `/connect-folder`/`/disconnect-folder` connect
-folders per workspace against the single shared Google account (see
-[Connected Drive folders](#connected-drive-folders)).
-
-Uninstalling the app, or Slack revoking its bot token, removes that
-workspace's row from `slack_installations` and stops watching its monitored
-channels (issue #64) — handled via the `app_uninstalled` and
-`tokens_revoked` events, both safe to receive more than once for the same
-workspace.
-
-## HTTP mode + hosting (issue #62)
-
-Socket Mode apps can't be listed in the Slack Marketplace, so all Slack
-traffic — events, slash commands, interactivity, and the OAuth routes above
-— is served over plain HTTP instead, with Bolt verifying every request's
-`X-Slack-Signature`/`X-Slack-Request-Timestamp` against
-`SLACK_SIGNING_SECRET` before any handler runs. There is no
-`SLACK_APP_TOKEN`/Socket Mode connection anymore.
-
-Locally, `docker compose up` binds this to `127.0.0.1:${SLACK_PORT:-3000}`,
-same pattern as `ingestion-api`. For a real public HTTPS endpoint (needed
-for Slack's OAuth redirect, the Events API, and Marketplace submission),
-deploy with [Fly.io](https://fly.io):
-
-```bash
-fly auth login          # interactive browser login, one-time
-fly launch              # scaffolds/merges fly.toml, pick a public app name
-fly secrets set SLACK_CLIENT_ID=... SLACK_CLIENT_SECRET=... \
-  SLACK_SIGNING_SECRET=... APP_ENCRYPTION_KEY=... \
-  SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... VOYAGE_API_KEY=... \
-  WORKSPACE_ID=... ANTHROPIC_API_KEY=...
-fly deploy
-```
-
-`fly.toml` runs only the Slack-facing process (`student-org-agent/app.py`)
-publicly — `ingestion-api` and `drive-sync-worker` stay local/private via
-`docker-compose.yml`, matching how `ingestion-api` was already
-`127.0.0.1`-only. Once deployed, update `student-org-agent/manifest.json`'s
-`YOUR_PUBLIC_DOMAIN` placeholders with the real `*.fly.dev` hostname (or your
-own domain), then update/reinstall the Slack app manifest. That's every
-`oauth_config.redirect_urls` entry, `settings.event_subscriptions.request_url`,
-`settings.interactivity.request_url`, **and each entry's own `url` field
-under `features.slash_commands`** — a slash command's request URL is a
-separate field from the other two per Slack's manifest schema; missing it
-means that command silently does nothing when invoked, even though events
-and interactivity work fine.
-
-## Slack-to-Google account registration
-
-Run this migration before enabling account registration:
-
-```text
-supabase/migrations/20260623000100_user_google_accounts.sql
-```
-
-Members can privately link any valid Google-account email to their own Slack
-identity:
-
-```text
-/register member@example.com
-```
-
-Emails are trimmed and lowercased. Re-running `/register` updates that Slack
-user's mapping. A Google email can belong to only one Slack user within a
-workspace. Responses are always ephemeral.
-
-Members can remove their mapping:
-
-```text
-/unregister
-```
-
-Unregistering is idempotent. Calendar and commitment features should resolve an
-account through:
-
-```python
-from registrations import resolve_google_email
-
-email = resolve_google_email(workspace_id, slack_user_id)
-```
-
-The stable identity is `(workspace_id, slack_user_id)`. Display names are stored
-only as optional metadata. Explicit `/register` records use `source=register`
-and should not be overwritten by future roster imports.
-
-## Connected Drive folders
-
-Docs and Sheets are discovered from explicitly connected Drive folders instead
-of scanning every file visible to a Google account. Each installed Slack
-workspace connects its **own** Google account (issue #66) — there is no
-single shared club account or local token file anymore.
-
-Before using folder sync, run these migrations in the Supabase SQL editor:
-
-```text
-supabase/migrations/20260623000000_drive_folder_sync.sql
-supabase/migrations/20260708000300_workspace_google_credentials.sql
-supabase/migrations/20260708000200_workspace_admin_settings.sql
-supabase/migrations/20260709000000_google_oauth_states.sql
-```
-
-**Google authentication is a single shared account.** All workspaces read
-Drive/Docs/Sheets through one Google account authorized once via a local
-bootstrap. Put an OAuth 2.0 **Desktop app** `client_secret.json` in the repo
-root, then run it once:
-
-```bash
-python -m tools.google_auth_bootstrap
-```
-
-This opens a browser for consent and writes the refresh token to
-`secrets/club_token.json` (path overridable via `GOOGLE_TOKEN_PATH`). The
-ingestion API, Drive sync worker, and `/connect-folder` all load that file;
-`workspace_id` scopes the connected-folder registry, not the credential.
-`/connect-folder` connects a folder directly — there is no per-workspace
-Google consent link. If the token file is missing, Drive/Docs/Sheets calls
-raise a clear "run `python -m tools.google_auth_bootstrap`" error, and the
-background poll loop and `tools/drive_poll_worker.py` log a no-op line when no
-workspace has connected a folder yet.
-
-Set these environment values for the Slack bot, ingestion API, and Drive sync
-worker:
-
-```text
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-VOYAGE_API_KEY=...
-WORKSPACE_ID=...
-GOOGLE_TOKEN_PATH=secrets/club_token.json
-DRIVE_POLL_INTERVAL_SECONDS=300
-```
-
-`SUPABASE_SERVICE_KEY` is also accepted as an alias for
-`SUPABASE_SERVICE_ROLE_KEY`; when both are set, `SUPABASE_SERVICE_ROLE_KEY`
-is used.
-
-Then update or reinstall the Slack app manifest so `/connect-folder` and
-`/disconnect-folder` are available, and connect a folder:
-
-```text
-/connect-folder https://drive.google.com/drive/folders/<folder_id>
-```
-
-If this workspace hasn't connected Google Drive yet, `/connect-folder`
-replies with a link to complete Google's consent screen instead of failing —
-run `/connect-folder` again afterward.
-
-Who's allowed to manage connected folders is per-workspace (issue #67), not a
-deployment-wide env var — the Slack user who completed the OAuth install is
-seeded as that workspace's default admin automatically. Change it via the
-`workspace_admin_settings` table (`drive_sync_admin_user_ids`, a Postgres
-`text[]`) or `common.workspace_admin_settings.WorkspaceAdminSettingsStore`.
-In development, any user is allowed if a workspace has no admins configured
-yet.
-
-**Upgrading a workspace that was already installed before this feature
-shipped?** It gets no row automatically — that only happens for new installs
-going forward, via the OAuth success callback — and there's no fallback to
-the old env vars (they were deleted from config entirely). In non-development
-environments this breaks `/connect-folder` with a visible error, and breaks
-reconciliation reaction approval **silently** (reaction events have no
-response channel to show an error in). Run this once, for every
-already-installed workspace, to backfill each one's installer as its default
-admin — the same thing the OAuth callback does for new installs, applied
-retroactively:
-
-```bash
-python -m tools.backfill_workspace_admin_settings
-```
-
-A no-op for any workspace that already has admin settings, so it's safe to
-re-run.
-
-The initial scan recursively walks subfolders and records subfolder membership
-plus supported Google Docs and Sheets. Supported files are dispatched to the
-existing heading-based Docs ingestor or the full-rewrite Sheets ingestor.
-Folder and file membership is stored in:
-
-- `connected_folders`
-- `connected_files`
-- `drive_sync_state`
-
-Disconnect a folder and remove source documents no longer referenced by another
-connected root:
-
-```text
-/disconnect-folder https://drive.google.com/drive/folders/<folder_id>
-```
-
-The `drive-sync-worker` Docker Compose service polls the Drive Changes API. A
-change identifies affected connected roots; those roots are rescanned, but only
-files with a changed Drive `modifiedTime` are re-ingested.
-
-Configure the interval in seconds:
-
-```text
-DRIVE_POLL_INTERVAL_SECONDS=300
-```
-
-Internal API equivalents are also available:
-
-```bash
-curl -X POST http://localhost:8000/drive/connect \
-  -H "Content-Type: application/json" \
-  -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
-  -d '{"folder":"https://drive.google.com/drive/folders/<folder_id>","workspace_id":"T123","user_id":"U123"}'
-
-curl -X POST http://localhost:8000/drive/sync \
-  -H "Content-Type: application/json" \
-  -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
-  -d '{"workspace_id":"T123"}'
-
-curl -X POST http://localhost:8000/drive/disconnect \
-  -H "Content-Type: application/json" \
-  -H "X-Ingestion-Api-Key: $INGESTION_API_KEY" \
-  -d '{"folder":"<folder_id>","workspace_id":"T123"}'
-```
-
-In Docker Compose, the ingestion API is bound to `127.0.0.1` by default. If
-exposed outside localhost, configure `INGESTION_API_KEY`; production-like
-environments reject protected routes without it.
-
-## Slack RTS tool
-
-Slack Real-time Search lives in `tools/slack_search.py`. It exposes a
-Claude-compatible tool metadata object and a Python function that a future LLM
-router can call:
-
-```python
-from tools.slack_search import SLACK_RTS_SEARCH_TOOL, search_slack_public_context
-```
-
-The tool searches public Slack messages only. It requires a short-lived
-`action_token` from a Slack interaction and must not log or expose that token.
-See `tools/README.md` for the tool contract and edge cases.
-
-## Google Docs ingestion
-
-The ingestion service uses the backend-only Supabase secret key. Configure:
-
-```text
-SUPABASE_URL=...
-SUPABASE_SERVICE_KEY=...
-VOYAGE_API_KEY=...
-WORKSPACE_ID=...
-GOOGLE_TOKEN_PATH=secrets/club_token.json
-```
-
-Never expose `SUPABASE_SERVICE_KEY`, `VOYAGE_API_KEY`, `client_secret.json`, or
-the generated `secrets/club_token.json` to a browser or commit them to Git —
-both are gitignored, and the token grants read access to the shared Google
-account's Drive.
-
-Docs/Sheets/Drive access is per-workspace (issue #66) via `/connect-folder`'s
-OAuth flow — see [Connected Drive folders](#connected-drive-folders). There is
-no standalone bootstrap script or local token file anymore; every workspace's
-Google credentials live encrypted in `workspace_google_credentials`.
-
-The `documents` table must include `workspace_id`, `source`, `source_id`,
-`chunk_key`, `content`, `content_hash`, `metadata`, `embedding`, `created_at`,
-and `updated_at`, with a unique constraint on:
-
-```text
-(workspace_id, source, source_id, chunk_key)
-```
-
-Ingest one shared Google Doc using its ID:
-
-```bash
-python -m ingestion_api.ingest_docs <google_doc_id>
-```
-
-Or call the API:
-
-```bash
-curl -X POST http://localhost:8000/ingest/doc \
-  -H "Content-Type: application/json" \
-  -d '{"doc_id":"google-doc-id"}'
-```
-
-Sections are split by Google Docs heading hierarchy. Oversized sections are
-split rather than truncated, and unchanged chunks are not re-embedded.
-
-## Google Sheets ingestion
-
-Reads all tabs from Sheets found below connected Drive folders. When Drive marks
-a Sheet as changed, the file is fully rewritten: all row embeddings are
-prepared first, then the prior rows for that Sheet are replaced.
-
-Ingest a single sheet by its ID (found in the sheet URL):
-
-```bash
-python -m ingestion_api.ingest_sheets <google_sheet_id>
-```
-
-Or call the API:
-
-```bash
-# Ingest one sheet
-curl -X POST http://localhost:8000/ingest/sheet \
-  -H "Content-Type: application/json" \
-  -d '{"sheet_id":"google-sheet-id"}'
+# Memora — Club Operations Assistant
+
+**Memora is a Slack-native operational memory for student organizations.** It
+turns the scattered knowledge of a club — decisions made in channels, budgets in
+spreadsheets, meeting minutes in Google Docs — into a single, searchable memory
+your members can query in plain language, right where they already work.
+
+Ask *"what did we decide about the spring formal budget?"* in Slack and get an
+answer grounded in your club's actual records, with a citation and a confidence
+level — not a guess.
+
+> Built by **Ashwin Sayenju**, **Hailee Zhang**, and **Aman Singh**.
+
+---
+
+## Table of contents
+
+- [What it does](#what-it-does)
+- [Slash commands](#slash-commands)
+- [How it works](#how-it-works)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Local development](#local-development)
+- [Deployment (Railway)](#deployment-railway)
+- [Configuration](#configuration)
+- [Feature reference](#feature-reference)
+  - [Recording decisions (`/decide`)](#recording-decisions-decide)
+  - [Asking questions (`/ask`)](#asking-questions-ask)
+  - [Connected Google Drive folders](#connected-google-drive-folders)
+  - [Slack message ingestion](#slack-message-ingestion)
+  - [Reconciliation proposals](#reconciliation-proposals)
+  - [Slack ⇄ Google account registration](#slack--google-account-registration)
+- [Data model](#data-model)
+- [Project structure](#project-structure)
+- [Testing](#testing)
+- [Contributors](#contributors)
+- [Reference documentation](#reference-documentation)
+
+---
+
+## What it does
+
+Memora watches the places a club's knowledge already lives and makes it
+retrievable:
+
+- **Captures decisions** — `/decide We approved $300 for tabling supplies.`
+  records a durable, timestamped decision.
+- **Ingests documents** — connect a Google Drive folder and Memora pulls in the
+  Google **Docs** and **Sheets** inside it (budgets, rosters, meeting minutes)
+  and keeps them in sync as they change.
+- **Ingests Slack history** — explicitly monitored channels are backfilled and
+  then kept current in real time (new, edited, and deleted messages).
+- **Answers questions** — `/ask` runs semantic search across everything above
+  and has Claude compose a cited answer, tagged **High / Medium / Low**
+  confidence based on the strength of the retrieved evidence.
+- **Reconciles the record** — a human-in-the-loop workflow proposes updates and
+  posts them to a review channel, where a designated approver confirms with an
+  emoji reaction.
+
+Everything is **workspace-scoped** and stored in your own Supabase project;
+secrets are encrypted at rest.
+
+## Slash commands
+
+| Command | What it does |
+| --- | --- |
+| `/decide <text>` | Record a club decision. Chunked, embedded, and stored for later retrieval. |
+| `/ask <question>` | Answer a question from the club's memory (decisions + Docs + Sheets), with a citation and confidence level. |
+| `/connect-folder <drive-url>` | Connect a Google Drive folder; its Docs and Sheets are ingested and kept in sync. |
+| `/disconnect-folder <drive-url>` | Disconnect a folder and purge documents no longer referenced by another connected folder. |
+| `/reconcile-run <topic>` | Kick off a reconciliation run; a proposal is posted to the workspace's review channel for approval. |
+| `/register <email>` | Link your Slack identity to a Google account email. |
+| `/unregister` | Remove your Slack ⇄ Google account link. |
+
+## How it works
 
 ```
-
-Each row becomes a chunk keyed by `{tab_id}:{content_hash}`. Duplicate rows
-within the same tab are de-duplicated automatically. Multi-tab sheets are fully
-supported; tabs are identified by their stable numeric ID so renaming a tab
-does not trigger re-embedding.
-
-To enable automatic background polling, set `DRIVE_POLL_INTERVAL_SECONDS` to
-the desired interval in seconds (e.g. `300` for every 5 minutes).
-
-The existing webhook can still trigger a direct rewrite:
-
-```bash
-curl -X POST http://localhost:8000/webhooks/spreadsheets \
-  -H "Content-Type: application/json" \
-  -d '{"sheet_id":"google-sheet-id"}'
+                       ┌──────────────────────────────────────────┐
+   Slack workspace     │                 Memora                    │
+   ┌───────────┐       │  ┌────────────┐   embed    ┌───────────┐  │
+   │  /decide  │──────▶│  │  slack-bot │──────────▶ │  Voyage   │  │
+   │  /ask     │◀──────│  │ (Socket    │            │ embeddings│  │
+   │  /connect │       │  │  Mode)     │            └───────────┘  │
+   └───────────┘       │  └─────┬──────┘                  │        │
+                       │        │ retrieve + compose      ▼        │
+   Google Drive        │        │              ┌─────────────────┐ │
+   ┌───────────┐       │  ┌─────▼──────┐        │    Supabase     │ │
+   │ Docs      │──────▶│  │ ingestion  │───────▶│  Postgres +     │ │
+   │ Sheets    │       │  │ (FastAPI + │        │  pgvector       │ │
+   └───────────┘       │  │  cron)     │        └─────────────────┘ │
+                       │  └────────────┘                 ▲          │
+                       │  ┌────────────┐  poll changes   │          │
+                       │  │  worker    │─────────────────┘          │
+                       │  │ (Drive)    │        ┌───────────┐       │
+                       │  └────────────┘        │  Claude   │◀──────┤ compose /ask
+                       │                        │ (Anthropic)│       │ answers
+                       └────────────────────────└───────────┘───────┘
 ```
 
-## Slack message ingestion
+1. **Capture.** `/decide`, connected Drive folders, and monitored Slack channels
+   feed content into the system. Text is split into sentence-aware chunks.
+2. **Embed & store.** Each chunk is embedded with **Voyage** and written to the
+   `documents` table in **Supabase**, which uses **pgvector** for similarity
+   search. Every row is tagged with its `source` (`slack_decide`, `gdoc`,
+   `gsheet`, or a monitored channel) and `workspace_id`.
+3. **Retrieve.** `/ask` embeds the question, runs a vector search over decisions
+   and knowledge (Docs/Sheets) via the `match_documents` Postgres function, and
+   filters by a similarity threshold.
+4. **Compose.** The retrieved evidence is handed to **Claude**, which writes a
+   grounded answer. A separate confidence scorer rates the result **High /
+   Medium / Low** from the evidence quality — so an answer with no real support
+   says so instead of hallucinating.
+5. **Keep in sync.** A background worker polls the Google Drive Changes API, and
+   a daily scheduled job reconciles Slack channels to catch edits/deletions
+   missed in real time.
 
-Run this migration before starting the bot, or `ingestion-api`/`slack-bot`
-will crash-loop on startup with
-`Could not find the table 'public.monitored_channels' in the schema cache`:
+## Architecture
 
-```text
-supabase/migrations/20260703000100_monitored_channels.sql
-```
+Memora runs as **three cooperating processes** that share one Supabase database
+and one Google account, but have distinct jobs:
 
-The bot does **not** scan or ingest the workspace's full Slack history. Only
-channels explicitly listed in the `monitored_channels` Supabase table are ever
-backfilled or watched in real time — see
-[`docs/slack_ingestion_setup.md`](docs/slack_ingestion_setup.md) for how to add
-a channel via the Supabase SQL editor (there is no admin UI yet).
+| Process | Command | Responsibility |
+| --- | --- | --- |
+| **`app`** (`slack-bot`) | `python student-org-agent/app.py` | Handles all Slack traffic — slash commands, events, and reactions. Connects to Slack over **Socket Mode** (an outbound WebSocket), so it needs no public URL. Runs `/decide`, `/ask`, `/connect-folder`, `/reconcile-run`, etc. in-process. |
+| **`ingestion`** | `uvicorn ingestion_api.main:app` | FastAPI service exposing internal ingestion endpoints (Docs, Sheets, Drive connect/sync) and running the **daily Slack reconciliation cron**. Not publicly exposed. |
+| **`worker`** | `python -m tools.drive_poll_worker` | Polls the Google Drive Changes API on an interval and re-ingests only changed files. The sole Drive poller. |
 
-Backfill is bounded, not a one-time full scan:
+**Slack connectivity — Socket Mode.** The bot dials out to Slack rather than
+receiving inbound webhooks, so there is no public endpoint to host, no OAuth
+redirect to register, and nothing for a restrictive network to block. This suits
+a single-club, single-workspace deployment. The codebase also retains an
+**HTTP/OAuth multi-workspace mode** (Bolt over FastAPI with a Supabase-backed
+installation store) for a future marketplace-style distribution — it activates
+automatically when `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` are absent and OAuth
+credentials are present. See [Slack connectivity modes](#slack-connectivity-modes).
 
-```text
-SLACK_BACKFILL_LIMIT=200
-```
+**Google authentication — one shared account.** All Drive/Docs/Sheets access
+goes through a single Google account, authorized once via a local browser
+consent bootstrap that produces a refresh token. `workspace_id` scopes the
+connected-folder *registry*, not the credential.
 
-This is the default per-run message budget for a channel's initial backfill,
-overridable per channel via the `monitored_channels.backfill_limit` column.
-Progress is resumable — each channel tracks `oldest_ts_backfilled` and
-`initial_backfill_complete`, so a restart continues where it left off instead
-of re-walking history already covered.
+## Tech stack
 
-Once a channel's initial backfill completes, it's kept in sync by:
+- **Python 3.12+**, **Slack Bolt** (Socket Mode + HTTP adapters)
+- **FastAPI** + **Uvicorn** (ingestion service)
+- **Supabase** (Postgres + **pgvector**) for storage and vector search
+- **Voyage AI** for embeddings (`voyage-3.5-lite`, 1024-dim by default)
+- **Anthropic Claude** for answer composition (`/ask`)
+- **Google Drive / Docs / Sheets APIs** for document ingestion
+- **APScheduler** for the daily reconciliation cron
+- **Fernet** (`cryptography`) for encrypting stored tokens at rest
+- **Railway** (Railpack builder) for deployment
+- **pytest** for the test suite
 
-- **Real-time events** — new, edited, and deleted messages are ingested as
-  they happen.
-- **A daily scheduled reconciliation** — a full walk that catches edits and
-  deletions missed in real time, controlled by:
+## Local development
 
-  ```text
-  SLACK_RECONCILE_CRON_HOUR=6
-  ```
+Local development runs the three processes directly against the source — no
+container build required.
 
-- **An on-demand endpoint** for manual/triggered runs:
-
-  ```bash
-  curl -X POST http://localhost:8000/ingest/slack/backfill \
-    -H "X-Ingestion-Api-Key: $INGESTION_API_KEY"
-  ```
-
-Scopes/events required for Slack ingestion specifically (a subset of the full
-bot manifest at `student-org-agent/manifest.json`, which also grants scopes
-for other features like `/decide` and `/ask`): `channels:history` and
-`im:history`, with event subscriptions `message.channels` and `message.im`.
-Private monitored channels additionally require `groups:history` and the
-`message.groups` event; both are declared in the current manifest, so update
-or reinstall the Slack app after applying it.
-
-Manual verification against a test workspace:
-
-1. Insert a test channel row via the Supabase SQL editor:
-
-   ```sql
-   insert into public.monitored_channels (channel_id, channel_name, backfill_limit)
-   values ('C0123456789', 'general', 200);
-   ```
-
-2. Restart the bot (or hit the endpoint above). Confirm rows appear in
-   `documents` for that channel, with `channel_name` correctly populated as
-   `general` — not the raw channel ID.
-3. Post a message in that channel, then edit it, then delete it. Confirm each
-   change is reflected in `documents` shortly after (ingested, re-embedded,
-   and removed, respectively).
-
-## Reconciliation proposals
-
-Human-in-the-loop reconciliation findings are stored as durable proposals before
-any write-back behavior runs. Run this migration before enabling proposal
-workflows:
-
-```text
-supabase/migrations/20260701000000_reconciliation_proposals.sql
-```
-
-The proposal model tracks:
-
-- workspace and proposal ID
-- status: `pending`, `confirmed`, `expired`, `rejected`, or `superseded`
-- source evidence and proposed action payloads
-- Slack channel/message references for posted proposals
-- created and expiry timestamps
-- confirmation metadata: approving Slack user and confirmation timestamp
-- audit events for creation, confirmation, expiry, rejection, and superseding
-
-Use `ReconciliationProposalService` for state changes so invalid transitions,
-such as confirming an expired proposal, are rejected consistently.
-Pending proposals default to expiring 72 hours after creation when callers do
-not provide an explicit expiry timestamp. Run `expire_due(workspace_id)`
-regularly from the reconciliation scheduler or maintenance job to mark overdue
-pending proposals expired before processing late approvals.
-
-Proposal confirmation is controlled by per-workspace configuration (issue
-#67, `workspace_admin_settings` table: `reconciliation_approval_user_ids`,
-`reconciliation_approval_reaction`, and `reconciliation_channel_id`) — not a
-deployment-wide env var. Apply
-`supabase/migrations/20260711000000_workspace_reconciliation_channel.sql`, then set
-the designated review channel for each workspace, for example:
-
-```sql
-update public.workspace_admin_settings
-set reconciliation_channel_id = 'C0123456789'
-where workspace_id = 'T0123456789';
-```
-
-The Slack user who completed the OAuth install is seeded as that workspace's
-default approver automatically, with the reaction defaulting to Slack's
-`white_check_mark` name for the checkmark emoji. Trigger a manual run with:
-
-```text
-/reconcile-run spring formal budget
-```
-
-The command uses that workspace's OAuth-resolved bot client and posts to its
-configured review channel. If no review channel is configured, it returns an
-ephemeral configuration error instead of posting to the command's channel.
-
-Only that workspace's configured committee lead Slack user IDs can confirm
-its pending proposals. Wrong reactions, unconfigured users, missing approval
-user configuration, and proposals that are expired, rejected, superseded, or
-already confirmed are ignored. The Slack app manifest subscribes to
-`reaction_added` and requires `reactions:read`; reinstall or update the app
-after changing the manifest.
-
-## Ingestion setup
-
-The ingestion API currently provides a placeholder endpoint for later document
-sync logic:
-
-```bash
-curl -X POST http://localhost:8000/webhooks/documents \
-  -H "Content-Type: application/json" \
-  -d '{"document_id":"example"}'
-```
-
-This endpoint acknowledges the payload but does not write to Supabase yet.
-
-## Development
-
-Run tests locally after installing dependencies:
+**1. Install dependencies**
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pytest
 ```
 
-Or, using the existing virtualenv:
+**2. Configure** — copy the example env file and fill it in (see
+[Configuration](#configuration)):
+
+```bash
+cp .env.example .env
+```
+
+**3. Authorize Google once** — put an OAuth 2.0 **Desktop app**
+`client_secret.json` in the repo root, then run the bootstrap. It opens a
+browser for consent and writes a refresh token to `secrets/club_token.json`:
+
+```bash
+python -m tools.google_auth_bootstrap
+```
+
+**4. Run the processes** — each in its own terminal, with the repo root on
+`PYTHONPATH` (so `from common.config import …` resolves):
+
+```bash
+# Terminal 1 — Slack bot (Socket Mode)
+set -a; . ./.env; set +a
+PYTHONPATH=$PWD python student-org-agent/app.py
+
+# Terminal 2 — ingestion API + reconciliation cron
+set -a; . ./.env; set +a
+PYTHONPATH=$PWD uvicorn ingestion_api.main:app --host 0.0.0.0 --port 8000
+
+# Terminal 3 — Drive poll worker
+set -a; . ./.env; set +a
+PYTHONPATH=$PWD python -m tools.drive_poll_worker
+```
+
+The Slack bot logs `⚡️ Bolt app is running!` once its Socket Mode connection is
+established. Check the ingestion API with `curl http://localhost:8000/health`.
+
+> **Socket Mode setup.** In your Slack app config: enable **Socket Mode**,
+> generate an **app-level token** (`xapp-…`, scope `connections:write`), and copy
+> the **bot token** (`xoxb-…`) from *OAuth & Permissions*. Put both in `.env` as
+> `SLACK_APP_TOKEN` and `SLACK_BOT_TOKEN`.
+
+> **Note on Docker Compose.** A `docker-compose.yml` remains in the repo but is
+> unmaintained — the supported local workflow is the direct commands above, and
+> deployment uses Railway's native builder (there is no Dockerfile).
+
+## Deployment (Railway)
+
+Memora deploys to **Railway** as one project with three services (`app`,
+`ingestion`, `worker`), all built from this repo with Railway's native
+**Railpack** builder (no Dockerfile). Infrastructure is declared as code in
+[`.railway/railway.ts`](.railway/railway.ts).
+
+Key points:
+
+- Each service runs the same repo with a different **start command** and
+  `PYTHONPATH=.`.
+- Secrets are set per service via `railway variable set` (never committed to
+  `.railway/railway.ts`, which is version-controlled).
+- The **shared Google credential** can't be a file on Railway's ephemeral disk,
+  so `secrets/club_token.json` is base64-encoded into the `GOOGLE_TOKEN_JSON_B64`
+  variable and reconstructed at process startup by
+  `common/secrets_bootstrap.py`.
+- No service is given a public domain — Socket Mode needs no inbound listener.
+
+Preview and apply infrastructure changes:
+
+```bash
+railway config plan     # preview
+railway config apply    # apply (asks before destructive changes)
+```
+
+## Configuration
+
+Environment variables (see [`.env.example`](.env.example)):
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `SUPABASE_URL` | ✅ | Supabase project URL. |
+| `SUPABASE_SERVICE_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Backend-only Supabase key (aliases; role key wins if both set). |
+| `VOYAGE_API_KEY` | ✅ | Voyage AI key for embeddings. |
+| `ANTHROPIC_API_KEY` | ✅ | Anthropic key for `/ask` answer composition. |
+| `WORKSPACE_ID` | ✅ | The Slack team ID this deployment serves. |
+| `APP_ENCRYPTION_KEY` | ✅ | Fernet key encrypting stored tokens. **Must stay constant** — changing it makes existing encrypted rows undecryptable. |
+| `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` | Socket Mode | `xoxb-…` bot token and `xapp-…` app-level token. Set both to run in Socket Mode. |
+| `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET` / `SLACK_SIGNING_SECRET` | ✅ | Slack app credentials (still required by config even in Socket Mode). |
+| `GOOGLE_TOKEN_PATH` | | Path to the Google refresh-token file (default `secrets/club_token.json`). |
+| `GOOGLE_TOKEN_JSON_B64` | Deploy | Base64 of the token file, materialized to disk at startup (used on Railway). |
+| `VOYAGE_EMBED_MODEL` | | Embedding model (default `voyage-3.5-lite`). |
+| `VOYAGE_EMBED_DIMENSION` | | Embedding dimension (default `1024`). |
+| `DRIVE_POLL_INTERVAL_SECONDS` | | Drive change-poll interval (default `300`). |
+| `SLACK_BACKFILL_LIMIT` | | Default per-run message budget for a channel's initial backfill (default `200`). |
+| `SLACK_RECONCILE_CRON_HOUR` | | Hour (0–23) for the daily Slack reconciliation walk (default `6`). |
+| `INGESTION_API_KEY` | | Protects the ingestion API's internal routes when exposed beyond localhost. |
+
+Generate an encryption key with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+### Database migrations
+
+Apply the SQL in `supabase/migrations/` (Supabase → SQL Editor) before first
+run. Notable tables: `documents` (chunks + embeddings), `monitored_channels`,
+`connected_folders` / `connected_files` / `drive_sync_state`,
+`workspace_admin_settings`, `reconciliation_proposals`, `slack_installations`,
+and `user_google_accounts`. The bot crash-loops on startup if
+`monitored_channels` is missing.
+
+## Feature reference
+
+### Recording decisions (`/decide`)
+
+```text
+/decide We approved $300 for tabling supplies.
+```
+
+On success the bot posts a public confirmation echoing the decision. Empty
+input, duplicate content, embedding failures, and database failures are shown
+only to the user who ran the command. Internally each decision is split into
+sentence-aware chunks; every chunk becomes a `documents` row (`source =
+slack_decide`) with metadata linking it back to the full decision. Chunking uses
+local deterministic sentence packing, with the boundary isolated for a future
+semantic chunker.
+
+### Asking questions (`/ask`)
+
+```text
+/ask what is the budget for the tennis event?
+```
+
+`/ask` embeds the question, runs vector search over both decisions
+(`slack_decide`) and knowledge (`gdoc`, `gsheet`) via the `match_documents`
+Postgres function, filters by a similarity threshold, and has Claude compose an
+answer from the surviving evidence. The reply includes a **confidence level**
+(High / Medium / Low) and reasoning — a query with no supporting evidence
+returns *Low — no relevant evidence found* rather than a fabricated answer.
+
+### Connected Google Drive folders
+
+Docs and Sheets are discovered from **explicitly connected** Drive folders, not
+by scanning everything a Google account can see.
+
+```text
+/connect-folder https://drive.google.com/drive/folders/<folder_id>
+```
+
+The initial scan recursively walks subfolders and records subfolder membership
+plus supported Google Docs and Sheets, dispatching each to the heading-aware
+Docs ingestor or the Sheets ingestor. Membership lives in `connected_folders`,
+`connected_files`, and `drive_sync_state`. The `worker` process polls the Drive
+Changes API; a change identifies affected connected roots, which are rescanned —
+but only files with a changed `modifiedTime` are re-ingested.
+
+Disconnect and purge documents no longer referenced by another connected root:
+
+```text
+/disconnect-folder https://drive.google.com/drive/folders/<folder_id>
+```
+
+Who may manage folders is per-workspace (`workspace_admin_settings.drive_sync_admin_user_ids`).
+Equivalent internal REST endpoints (`/drive/connect`, `/drive/sync`,
+`/drive/disconnect`) exist on the ingestion API, protected by `INGESTION_API_KEY`
+when exposed beyond localhost.
+
+### Slack message ingestion
+
+The bot does **not** scan full Slack history. Only channels listed in the
+`monitored_channels` table are backfilled and watched — see
+[`docs/slack_ingestion_setup.md`](docs/slack_ingestion_setup.md) for adding one
+via the Supabase SQL editor.
+
+Backfill is **bounded and resumable**: each channel has a per-run message budget
+(`SLACK_BACKFILL_LIMIT`, or `monitored_channels.backfill_limit`) and tracks
+`oldest_ts_backfilled` / `initial_backfill_complete`, so a restart continues
+where it left off. Once initial backfill completes, a channel stays in sync via:
+
+- **Real-time events** — new, edited, and deleted messages are ingested live.
+- **A daily reconciliation walk** — catches edits/deletions missed in real time
+  (`SLACK_RECONCILE_CRON_HOUR`).
+- **An on-demand endpoint** — `POST /ingest/slack/backfill`.
+
+Required scopes/events: `channels:history`, `im:history` (+ `groups:history` for
+private channels), with the corresponding `message.*` event subscriptions.
+
+### Reconciliation proposals
+
+A human-in-the-loop workflow stores findings as durable **proposals** before any
+write-back. Proposals track status (`pending`, `confirmed`, `expired`,
+`rejected`, `superseded`), source evidence, proposed actions, Slack
+channel/message references, expiry (default 72h), and an audit trail. Use
+`ReconciliationProposalService` for state changes so invalid transitions (e.g.
+confirming an expired proposal) are rejected consistently.
+
+```text
+/reconcile-run spring formal budget
+```
+
+The command posts a proposal to the workspace's configured **review channel**
+(`workspace_admin_settings.reconciliation_channel_id`); if none is configured it
+returns an ephemeral error rather than posting to the command's channel.
+Approval is by emoji **reaction** (`white_check_mark` by default) from a
+configured approver (`reconciliation_approval_user_ids`). Wrong reactions,
+unconfigured users, and already-resolved proposals are ignored. Requires the
+`reaction_added` event subscription and `reactions:read` scope.
+
+### Slack ⇄ Google account registration
+
+`/register <email>` links a member's Slack identity to a Google account email
+(stored in `user_google_accounts`); `/unregister` removes it. This underpins
+per-user attribution for Google-sourced content.
+
+## Data model
+
+Everything retrievable lives in the Supabase **`documents`** table — one row per
+chunk, each with its embedding, `content_hash`, `chunk_key`, `workspace_id`,
+`source`, and `metadata`. Sources:
+
+| `source` | Origin |
+| --- | --- |
+| `slack_decide` | `/decide` statements |
+| `gdoc` | Google Docs from connected folders |
+| `gsheet` | Google Sheets from connected folders |
+| *(channel-tagged)* | Ingested Slack messages |
+
+Vector search is performed by the `match_documents` Postgres function
+(pgvector), filtered by source and a similarity threshold. There is **no**
+separate `decisions` table — decisions are `documents` rows with `source =
+slack_decide`.
+
+## Project structure
+
+```
+student-org-agent/   Slack bot entrypoint (Bolt: Socket Mode + HTTP adapters), slash-command handlers
+ingestion_api/       FastAPI ingestion service, Drive sync, Docs/Sheets ingestors
+tools/               Drive poll worker, vector search, Google auth bootstrap, admin scripts
+common/              Config, crypto, Slack installation store, secrets bootstrap, shared ingestion
+memoryAnswer/        /ask service — retrieval → Claude answer composition
+reconciliation/      Reconciliation proposal model, service, and approval policy
+decisions/           /decide service (chunking, embedding, storage)
+registrations/       Slack ⇄ Google account registration
+supabase/migrations/ Database schema
+.railway/            Infrastructure-as-code for the Railway deployment
+tests/               pytest suite
+```
+
+## Testing
 
 ```bash
 .venv/bin/python -m pytest -q
 ```
 
-Validate Docker Compose:
-
-```bash
-docker compose config --quiet
-```
-
-Build the Slack bot image:
-
-```bash
-docker compose build slack-bot
-```
-
 Ingestion routes live in `ingestion_api/main.py`; shared settings live in
 `common/config.py`.
+
+## Slack connectivity modes
+
+Memora supports two ways of talking to Slack, selected automatically at startup:
+
+- **Socket Mode** (current deployment) — active when `SLACK_BOT_TOKEN` and
+  `SLACK_APP_TOKEN` are set. The bot opens an outbound WebSocket to Slack; no
+  public URL, no OAuth install flow, single workspace. Ideal for a single club.
+- **HTTP / OAuth multi-workspace mode** — active when those tokens are absent
+  and `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET` are present. Bolt is served over
+  FastAPI with real request-signature verification, and each installing
+  workspace gets its own bot token stored (encrypted) in the
+  `slack_installations` table via Slack's OAuth flow. Intended for a future
+  marketplace-style distribution.
+
+Both modes share the same command handlers, so features behave identically.
+
+## Contributors
+
+Memora is built and maintained by:
+
+- **Ashwin Sayenju**
+- **Hailee Zhang**
+- **Aman Singh**
 
 ## Reference documentation
 
 - [Slack Bolt for Python](docs/slack-bolt-python-reference.md)
+- [Slack ingestion setup](docs/slack_ingestion_setup.md)
+- [`tools/` tool contracts](tools/README.md)
