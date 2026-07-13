@@ -2,10 +2,11 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from common.google_credentials_store import get_google_credentials
+from common.config import get_ingestion_settings
 
 
 DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
@@ -76,7 +77,19 @@ def parse_folder_id(folder_reference: str) -> str:
 
 
 def get_drive_service(workspace_id: str) -> Any:
-    credentials = get_google_credentials(workspace_id, [DRIVE_READ_SCOPE])
+    # All workspaces share one Google account authorized via
+    # `python -m tools.google_auth_bootstrap`; workspace_id scopes the folder
+    # registry, not the credential.
+    token_path = get_ingestion_settings().google_token_path
+    if not token_path.exists():
+        raise FileNotFoundError(
+            f"Google OAuth token not found at {token_path}. "
+            "Run: python -m tools.google_auth_bootstrap"
+        )
+    credentials = Credentials.from_authorized_user_file(
+        str(token_path),
+        [DRIVE_READ_SCOPE],
+    )
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
 

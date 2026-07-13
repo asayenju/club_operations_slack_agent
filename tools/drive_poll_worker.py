@@ -2,7 +2,7 @@ import logging
 import time
 
 from common.config import get_ingestion_settings
-from common.google_credentials_store import WorkspaceGoogleCredentialsStore
+from ingestion_api.drive_repository import SupabaseDriveRegistry
 from ingestion_api.drive_sync import DriveSyncService
 
 
@@ -20,18 +20,15 @@ def _get_supabase():
 
 
 def _poll_all_workspaces() -> None:
-    """Poll Drive changes for every workspace that has connected a Google
-    account (issue #66) -- not just one, since Drive is no longer a single
-    shared account."""
-    supabase = _get_supabase()
-    workspace_ids = WorkspaceGoogleCredentialsStore(supabase).list_workspace_ids()
+    """Poll Drive changes for every workspace that has connected a folder.
+    Google auth is a single shared account (secrets/club_token.json via
+    `python -m tools.google_auth_bootstrap`); workspace_id scopes the folder
+    registry, not the credential."""
+    workspace_ids = SupabaseDriveRegistry(_get_supabase()).list_workspace_ids()
     if not workspace_ids:
-        logger.warning(
-            "No workspaces have connected Google Drive yet -- this poll is a "
-            "no-op. If a workspace previously relied on the old shared "
-            "secrets/club_token.json, that stopped being read entirely as of "
-            "issue #66; an admin must run /connect-folder in Slack to "
-            "reconnect it under the new per-workspace OAuth flow."
+        logger.info(
+            "No workspaces have connected a Drive folder yet -- this poll is a "
+            "no-op. Run /connect-folder in Slack to connect one."
         )
         return
     for workspace_id in workspace_ids:

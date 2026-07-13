@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import TypeVar
 
 from pydantic import AliasChoices, Field
@@ -21,6 +22,13 @@ class SlackSettings(BaseAppSettings):
     slack_client_secret: str
     slack_signing_secret: str
     slack_port: int = 3000
+    # Socket Mode (local dev without a public URL / tunnel): when both are set,
+    # the bot connects out to Slack over a WebSocket instead of serving the
+    # OAuth/HTTP endpoints. slack_bot_token is the workspace's xoxb- token
+    # (OAuth & Permissions page); slack_app_token is an xapp- app-level token
+    # with connections:write (Basic Information -> App-Level Tokens).
+    slack_bot_token: str | None = None
+    slack_app_token: str | None = None
     slack_token_verification_enabled: bool = False
     supabase_url: str
     supabase_service_role_key: str = Field(
@@ -49,9 +57,7 @@ class IngestionSettings(BaseAppSettings):
     supabase_publishable_key: str | None = None
     voyage_api_key: str | None = None
     workspace_id: str | None = None
-    google_oauth_client_id: str | None = None
-    google_oauth_client_secret: str | None = None
-    public_base_url: str | None = None
+    google_token_path: Path = Path("secrets/club_token.json")
     drive_poll_interval_seconds: int = 300
     ingestion_api_key: str | None = None
     slack_backfill_limit: int = 200
@@ -77,14 +83,6 @@ class IngestionSettings(BaseAppSettings):
     @property
     def required_workspace_id(self) -> str:
         return self.require(self.workspace_id, "WORKSPACE_ID")
-
-    @property
-    def required_google_oauth_client_id(self) -> str:
-        return self.require(self.google_oauth_client_id, "GOOGLE_OAUTH_CLIENT_ID")
-
-    @property
-    def required_google_oauth_client_secret(self) -> str:
-        return self.require(self.google_oauth_client_secret, "GOOGLE_OAUTH_CLIENT_SECRET")
 
 
 @lru_cache

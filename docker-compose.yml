@@ -41,3 +41,19 @@ services:
       - ./tools:/app/tools
       - ./secrets:/app/secrets:ro
     command: sh -c "python -m tools.drive_poll_worker"
+
+  # Public HTTPS tunnel to the slack-bot so Slack's servers can reach slash
+  # commands / events during local dev (production uses the Fly.io deploy
+  # instead). Requires NGROK_AUTHTOKEN in .env (get one at
+  # https://dashboard.ngrok.com/get-started/your-authtoken). After `up`, grab
+  # the public URL from http://localhost:4040 (or `docker compose logs ngrok`)
+  # and set it as the Request URL (<url>/slack/events) in your Slack app config.
+  ngrok:
+    image: ngrok/ngrok:latest
+    depends_on:
+      - slack-bot
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    command: http slack-bot:3000
+    ports:
+      - "127.0.0.1:4040:4040"  # ngrok inspection UI / local API

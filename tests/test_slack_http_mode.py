@@ -28,6 +28,8 @@ def _load_http_app(monkeypatch):
         slack_client_id="client-id-test",
         slack_client_secret="client-secret-test",
         slack_port=3000,
+        slack_bot_token=None,
+        slack_app_token=None,
     ))
 
     module_path = Path(__file__).resolve().parents[1] / "student-org-agent" / "app.py"

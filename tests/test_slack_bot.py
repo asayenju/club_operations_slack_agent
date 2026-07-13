@@ -225,24 +225,18 @@ def _stub_uninstall_dependencies(bot, monkeypatch, *, deleted_channel_counts=Non
         "delete_monitored_channels_for_workspace",
         lambda supabase, workspace_id: deleted_channels.append(workspace_id) or (deleted_channel_counts or 0),
     )
-    deleted_google_creds = []
-    monkeypatch.setattr(
-        bot,
-        "WorkspaceGoogleCredentialsStore",
-        lambda supabase: SimpleNamespace(delete=lambda workspace_id: deleted_google_creds.append(workspace_id)),
-    )
     deleted_admin_settings = []
     monkeypatch.setattr(
         bot,
         "WorkspaceAdminSettingsStore",
         lambda supabase: SimpleNamespace(delete=lambda workspace_id: deleted_admin_settings.append(workspace_id)),
     )
-    return store, deleted_channels, deleted_google_creds, deleted_admin_settings
+    return store, deleted_channels, deleted_admin_settings
 
 
 def test_app_uninstalled_removes_installation_and_monitored_channels(monkeypatch):
     bot = load_bot_module(monkeypatch)
-    store, deleted_channels, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(
+    store, deleted_channels, deleted_admin_settings = _stub_uninstall_dependencies(
         bot, monkeypatch
     )
     bot._monitored_channels_by_workspace["T_UNINSTALLED"] = {"C01": "general"}
@@ -256,17 +250,17 @@ def test_app_uninstalled_removes_installation_and_monitored_channels(monkeypatch
     assert "T_UNINSTALLED" not in bot._monitored_channels_by_workspace
 
 
-def test_app_uninstalled_removes_google_credentials_and_admin_settings(monkeypatch):
+def test_app_uninstalled_removes_admin_settings(monkeypatch):
     """Issue #64 acceptance criteria (Aman review, #73): uninstall cleanup
-    must also drop workspace-scoped Google Drive credentials (#66) and admin
-    settings (#67), not just the Slack installation and monitored channels."""
+    must also drop workspace-scoped admin settings (#67), not just the Slack
+    installation and monitored channels. (Google auth is a single shared
+    account with no per-workspace credential row to clean up.)"""
     bot = load_bot_module(monkeypatch)
-    _, _, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
+    _, _, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
 
     bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
 
-    assert deleted_google_creds == ["T_UNINSTALLED"]
     assert deleted_admin_settings == ["T_UNINSTALLED"]
 
 
@@ -274,20 +268,19 @@ def test_app_uninstalled_is_idempotent(monkeypatch):
     """Slack does not guarantee exactly-once delivery -- receiving this
     event twice for the same team must not raise."""
     bot = load_bot_module(monkeypatch)
-    store, _, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
+    store, _, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
 
     bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
     bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
 
     assert store.deleted_team_ids == ["T_UNINSTALLED", "T_UNINSTALLED"]
-    assert deleted_google_creds == ["T_UNINSTALLED", "T_UNINSTALLED"]
     assert deleted_admin_settings == ["T_UNINSTALLED", "T_UNINSTALLED"]
 
 
 def test_tokens_revoked_removes_installation_when_bot_token_revoked(monkeypatch):
     bot = load_bot_module(monkeypatch)
-    store, deleted_channels, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(
+    store, deleted_channels, deleted_admin_settings = _stub_uninstall_dependencies(
         bot, monkeypatch
     )
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
@@ -300,7 +293,6 @@ def test_tokens_revoked_removes_installation_when_bot_token_revoked(monkeypatch)
 
     assert store.deleted_team_ids == ["T_REVOKED"]
     assert deleted_channels == ["T_REVOKED"]
-    assert deleted_google_creds == ["T_REVOKED"]
     assert deleted_admin_settings == ["T_REVOKED"]
 
 
@@ -308,7 +300,7 @@ def test_tokens_revoked_ignores_user_only_token_revocation(monkeypatch):
     """This app is bot-scope-only (installation_store_bot_only=True) -- a
     revoked user token with no bot token revoked isn't ours to react to."""
     bot = load_bot_module(monkeypatch)
-    store, deleted_channels, deleted_google_creds, deleted_admin_settings = _stub_uninstall_dependencies(
+    store, deleted_channels, deleted_admin_settings = _stub_uninstall_dependencies(
         bot, monkeypatch
     )
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
@@ -321,27 +313,24 @@ def test_tokens_revoked_ignores_user_only_token_revocation(monkeypatch):
 
     assert store.deleted_team_ids == []
     assert deleted_channels == []
-    assert deleted_google_creds == []
     assert deleted_admin_settings == []
 
 
-def test_app_uninstalled_continues_cleanup_when_google_credentials_deletion_fails(monkeypatch):
+def test_app_uninstalled_continues_cleanup_when_monitored_channel_deletion_fails(monkeypatch):
     """A DB hiccup deleting one workspace-scoped table must not stop the
-    rest of the cleanup (installation, monitored channels, admin settings)
-    from running."""
+    rest of the cleanup (installation, admin settings) from running."""
     bot = load_bot_module(monkeypatch)
-    store, deleted_channels, _, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
+    store, _, deleted_admin_settings = _stub_uninstall_dependencies(bot, monkeypatch)
 
-    def _raise(supabase):
+    def _raise(supabase, workspace_id):
         raise RuntimeError("db unavailable")
 
-    monkeypatch.setattr(bot, "WorkspaceGoogleCredentialsStore", _raise)
+    monkeypatch.setattr(bot, "delete_monitored_channels_for_workspace", _raise)
     noop_logger = SimpleNamespace(info=lambda *a, **k: None, exception=lambda *a, **k: None)
 
     bot.handle_app_uninstalled(context={"team_id": "T_UNINSTALLED"}, logger=noop_logger)
 
     assert store.deleted_team_ids == ["T_UNINSTALLED"]
-    assert deleted_channels == ["T_UNINSTALLED"]
     assert deleted_admin_settings == ["T_UNINSTALLED"]
 
 
@@ -496,11 +485,6 @@ def test_handle_decide_command_reports_failures_ephemerally(monkeypatch):
 
 
 def _stub_drive_connected(bot, monkeypatch):
-    monkeypatch.setattr(
-        bot,
-        "WorkspaceGoogleCredentialsStore",
-        lambda supabase: SimpleNamespace(is_connected=lambda workspace_id: True),
-    )
     monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
     monkeypatch.setattr(
         bot,
@@ -572,92 +556,6 @@ def test_handle_disconnect_folder_command_purges_sources(monkeypatch):
         {
             "response_type": "ephemeral",
             "text": "Folder disconnected. Removed 2 unreferenced sources.",
-        },
-    ]
-
-
-def test_handle_connect_folder_command_prompts_connection_when_drive_not_connected(monkeypatch):
-    """Issue #66: no more single-workspace restriction -- any workspace can
-    use /connect-folder once IT has connected its own Google Drive. If it
-    hasn't yet, show a connection link instead of a rejection."""
-    bot = load_bot_module(monkeypatch)
-    responses = []
-    monkeypatch.setattr(
-        bot,
-        "WorkspaceGoogleCredentialsStore",
-        lambda supabase: SimpleNamespace(is_connected=lambda workspace_id: False),
-    )
-    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
-    monkeypatch.setattr(
-        bot,
-        "WorkspaceAdminSettingsStore",
-        lambda supabase: SimpleNamespace(
-            get=lambda workspace_id, app_env="development": SimpleNamespace(
-                drive_sync_admin_user_ids=None,
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        bot,
-        "GoogleOAuthStateStore",
-        lambda supabase: SimpleNamespace(create=lambda workspace_id, user_id, **kwargs: "opaque-test-token"),
-    )
-    monkeypatch.setattr(bot, "build_authorization_url", lambda state: f"https://accounts.google.com/auth?state={state}")
-
-    bot.handle_connect_folder_command(
-        ack=lambda: responses.append({"acked": True}),
-        command={"team_id": "T_ANY_WORKSPACE", "text": "root", "user_id": "U1"},
-        respond=lambda **kwargs: responses.append(kwargs),
-    )
-
-    assert responses == [
-        {"acked": True},
-        {
-            "response_type": "ephemeral",
-            "text": "Connect Google Drive for this workspace first: "
-                    "https://accounts.google.com/auth?state=opaque-test-token",
-        },
-    ]
-
-
-def test_handle_connect_folder_command_reports_failure_when_google_oauth_misconfigured(monkeypatch):
-    """GOOGLE_OAUTH_CLIENT_ID/SECRET missing (or any other failure building
-    the authorization URL) must give an ephemeral error, not crash the
-    whole command handler uncaught."""
-    bot = load_bot_module(monkeypatch)
-    responses = []
-    monkeypatch.setattr(
-        bot,
-        "WorkspaceGoogleCredentialsStore",
-        lambda supabase: SimpleNamespace(is_connected=lambda workspace_id: False),
-    )
-    monkeypatch.setattr(bot, "_get_supabase", lambda: SimpleNamespace())
-    monkeypatch.setattr(
-        bot,
-        "WorkspaceAdminSettingsStore",
-        lambda supabase: SimpleNamespace(
-            get=lambda workspace_id, app_env="development": SimpleNamespace(
-                drive_sync_admin_user_ids=None,
-            )
-        ),
-    )
-
-    def _raise(state):
-        raise RuntimeError("GOOGLE_OAUTH_CLIENT_ID must be configured")
-
-    monkeypatch.setattr(bot, "build_authorization_url", _raise)
-
-    bot.handle_connect_folder_command(
-        ack=lambda: responses.append({"acked": True}),
-        command={"team_id": "T_ANY_WORKSPACE", "text": "root", "user_id": "U1"},
-        respond=lambda **kwargs: responses.append(kwargs),
-    )
-
-    assert responses == [
-        {"acked": True},
-        {
-            "response_type": "ephemeral",
-            "text": "I couldn't start the Google Drive connection right now.",
         },
     ]
 

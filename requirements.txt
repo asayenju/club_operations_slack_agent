@@ -14,4 +14,5 @@ voyageai>=0.3.2,<1.0.0
 anthropic>=0.52.0
 slack_sdk==3.42.0
 slack_bolt==1.22.0
+websocket-client>=1.8.0  # Socket Mode transport for slack_bolt SocketModeHandler
 cryptography>=43.0.0
