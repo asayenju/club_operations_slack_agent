@@ -2,6 +2,7 @@ import logging
 import time
 
 from common.config import get_ingestion_settings
+from common.secrets_bootstrap import materialize_google_token
 from ingestion_api.drive_repository import SupabaseDriveRegistry
 from ingestion_api.drive_sync import DriveSyncService
 
@@ -11,6 +12,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+materialize_google_token()
 
 
 def _get_supabase():

@@ -1,0 +1,19 @@
+{
+  "name": "club_operations_slack_agent",
+  "version": "1.0.0",
+  "description": "A FastAPI service for future student organization document and spreadsheet ingestion webhooks.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "railway": "^3.5.5"
+  }
+}

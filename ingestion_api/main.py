@@ -1,4 +1,3 @@
-import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Any
@@ -10,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings
+from common.secrets_bootstrap import materialize_google_token
 from common.slack_ingestion import list_monitored_channels, run_channel_backfill
 from common.slack_installation_store import SupabaseInstallationStore
 from common.slack_scopes import verify_slack_scopes
@@ -17,6 +17,7 @@ from ingestion_api.drive_sync import DriveSyncService
 from ingestion_api.ingest_docs import IngestionResult, ingest_doc
 from ingestion_api.ingest_sheets import ingest_sheet
 
+materialize_google_token()
 settings = get_ingestion_settings()
 scheduler = BackgroundScheduler()
 
@@ -68,33 +69,10 @@ async def lifespan(app: FastAPI):
     sample_channel_id = channels[0]["channel_id"] if channels else None
     verify_slack_scopes(_get_slack_client(), sample_channel_id=sample_channel_id)
 
-    poll_interval = settings.drive_poll_interval_seconds
-    task = None
-    if poll_interval > 0:
-        def _poll_all_workspaces() -> None:
-            """Poll every workspace that has connected a Drive folder. Google
-            auth is a single shared account (secrets/club_token.json);
-            workspace_id scopes the folder registry, not the credential."""
-            from ingestion_api.drive_repository import SupabaseDriveRegistry
-            workspace_ids = SupabaseDriveRegistry(_get_supabase()).list_workspace_ids()
-            if not workspace_ids:
-                print(
-                    "[poll] no workspaces have connected a Drive folder yet -- "
-                    "run /connect-folder in Slack to connect one"
-                )
-                return
-            for workspace_id in workspace_ids:
-                try:
-                    DriveSyncService.from_settings(workspace_id).poll_changes()
-                except Exception as exc:
-                    print(f"[poll] drive sync failed for {workspace_id}: {exc}")
-
-        async def _poll_loop():
-            while True:
-                await asyncio.sleep(poll_interval)
-                await asyncio.to_thread(_poll_all_workspaces)
-        task = asyncio.create_task(_poll_loop())
-
+    # Drive polling itself lives in tools/drive_poll_worker.py, run as its own
+    # process -- this used to *also* run a duplicate poll loop in-process,
+    # which just meant polling every connected workspace's Drive twice as
+    # often for no benefit. Only the reconcile cron belongs here.
     scheduler.add_job(
         _run_slack_reconcile,
         CronTrigger(hour=settings.slack_reconcile_cron_hour, minute=0),
@@ -106,12 +84,6 @@ async def lifespan(app: FastAPI):
     yield
 
     scheduler.shutdown(wait=False)
-    if task:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
 
 
 app = FastAPI(

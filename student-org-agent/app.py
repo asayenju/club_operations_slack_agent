@@ -12,6 +12,7 @@ from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings, get_slack_settings
+from common.secrets_bootstrap import materialize_google_token
 from common.slack_ingestion import (
     delete_monitored_channels_for_workspace,
     delete_slack_message,
@@ -45,6 +46,8 @@ from reconciliation.service import (
 
 logger = logging.getLogger(__name__)
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+materialize_google_token()
 
 # Must match student-org-agent/manifest.json's oauth_config.scopes.bot exactly
 # -- this is what Slack's OAuth consent screen actually grants per install.

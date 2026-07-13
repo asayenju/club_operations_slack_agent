@@ -12,3 +12,4 @@ eval_results/
 club-operation-slack-agent-ddf0d76c4eb0.json
 .DS_Store
 secrets/.DS_Store
+node_modules/
