@@ -62,7 +62,11 @@ KNOWLEDGE_SEARCH_TOOL = {
 }
 
 
-DEFAULT_MIN_SIMILARITY = 0.70  # aligns with MIN_SIMILARITY in scripts/eval_retrieval_k.py
+# Lowered from 0.70 to 0.50: at 0.70 real matches were filtered out and /ask
+# returned "no relevant information" for questions that had valid evidence.
+# NOTE: scripts/eval_retrieval_k.py still uses MIN_SIMILARITY=0.70; keep in mind
+# they now diverge (trades precision for recall).
+DEFAULT_MIN_SIMILARITY = 0.50
 
 
 class DocumentSearchError(RuntimeError):
