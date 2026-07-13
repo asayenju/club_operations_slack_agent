@@ -17,8 +17,6 @@ level — not a guess.
 
 - [What it does](#what-it-does)
 - [Slash commands](#slash-commands)
-- [How it works](#how-it-works)
-- [Architecture](#architecture)
 - [Tech stack](#tech-stack)
 - [Local development](#local-development)
 - [Deployment (Railway)](#deployment-railway)
@@ -71,73 +69,6 @@ secrets are encrypted at rest.
 | `/reconcile-run <topic>` | Kick off a reconciliation run; a proposal is posted to the workspace's review channel for approval. |
 | `/register <email>` | Link your Slack identity to a Google account email. |
 | `/unregister` | Remove your Slack ⇄ Google account link. |
-
-## How it works
-
-```
-                       ┌──────────────────────────────────────────┐
-   Slack workspace     │                 Memora                    │
-   ┌───────────┐       │  ┌────────────┐   embed    ┌───────────┐  │
-   │  /decide  │──────▶│  │  slack-bot │──────────▶ │  Voyage   │  │
-   │  /ask     │◀──────│  │ (Socket    │            │ embeddings│  │
-   │  /connect │       │  │  Mode)     │            └───────────┘  │
-   └───────────┘       │  └─────┬──────┘                  │        │
-                       │        │ retrieve + compose      ▼        │
-   Google Drive        │        │              ┌─────────────────┐ │
-   ┌───────────┐       │  ┌─────▼──────┐        │    Supabase     │ │
-   │ Docs      │──────▶│  │ ingestion  │───────▶│  Postgres +     │ │
-   │ Sheets    │       │  │ (FastAPI + │        │  pgvector       │ │
-   └───────────┘       │  │  cron)     │        └─────────────────┘ │
-                       │  └────────────┘                 ▲          │
-                       │  ┌────────────┐  poll changes   │          │
-                       │  │  worker    │─────────────────┘          │
-                       │  │ (Drive)    │        ┌───────────┐       │
-                       │  └────────────┘        │  Claude   │◀──────┤ compose /ask
-                       │                        │ (Anthropic)│       │ answers
-                       └────────────────────────└───────────┘───────┘
-```
-
-1. **Capture.** `/decide`, connected Drive folders, and monitored Slack channels
-   feed content into the system. Text is split into sentence-aware chunks.
-2. **Embed & store.** Each chunk is embedded with **Voyage** and written to the
-   `documents` table in **Supabase**, which uses **pgvector** for similarity
-   search. Every row is tagged with its `source` (`slack_decide`, `gdoc`,
-   `gsheet`, or a monitored channel) and `workspace_id`.
-3. **Retrieve.** `/ask` embeds the question, runs a vector search over decisions
-   and knowledge (Docs/Sheets) via the `match_documents` Postgres function, and
-   filters by a similarity threshold.
-4. **Compose.** The retrieved evidence is handed to **Claude**, which writes a
-   grounded answer. A separate confidence scorer rates the result **High /
-   Medium / Low** from the evidence quality — so an answer with no real support
-   says so instead of hallucinating.
-5. **Keep in sync.** A background worker polls the Google Drive Changes API, and
-   a daily scheduled job reconciles Slack channels to catch edits/deletions
-   missed in real time.
-
-## Architecture
-
-Memora runs as **three cooperating processes** that share one Supabase database
-and one Google account, but have distinct jobs:
-
-| Process | Command | Responsibility |
-| --- | --- | --- |
-| **`app`** (`slack-bot`) | `python student-org-agent/app.py` | Handles all Slack traffic — slash commands, events, and reactions. Connects to Slack over **Socket Mode** (an outbound WebSocket), so it needs no public URL. Runs `/decide`, `/ask`, `/connect-folder`, `/reconcile-run`, etc. in-process. |
-| **`ingestion`** | `uvicorn ingestion_api.main:app` | FastAPI service exposing internal ingestion endpoints (Docs, Sheets, Drive connect/sync) and running the **daily Slack reconciliation cron**. Not publicly exposed. |
-| **`worker`** | `python -m tools.drive_poll_worker` | Polls the Google Drive Changes API on an interval and re-ingests only changed files. The sole Drive poller. |
-
-**Slack connectivity — Socket Mode.** The bot dials out to Slack rather than
-receiving inbound webhooks, so there is no public endpoint to host, no OAuth
-redirect to register, and nothing for a restrictive network to block. This suits
-a single-club, single-workspace deployment. The codebase also retains an
-**HTTP/OAuth multi-workspace mode** (Bolt over FastAPI with a Supabase-backed
-installation store) for a future marketplace-style distribution — it activates
-automatically when `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` are absent and OAuth
-credentials are present. See [Slack connectivity modes](#slack-connectivity-modes).
-
-**Google authentication — one shared account.** All Drive/Docs/Sheets access
-goes through a single Google account, authorized once via a local browser
-consent bootstrap that produces a refresh token. `workspace_id` scopes the
-connected-folder *registry*, not the credential.
 
 ## Tech stack
 
