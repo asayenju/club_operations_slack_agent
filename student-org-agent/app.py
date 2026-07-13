@@ -96,6 +96,17 @@ if _slack_settings.slack_bot_token:
     # Socket Mode / single-workspace local dev: authenticate with a static bot
     # token instead of the multi-workspace OAuth install flow. No public URL is
     # needed -- __main__ starts a SocketModeHandler that dials out to Slack.
+    #
+    # Bolt's own App() constructor auto-detects SLACK_CLIENT_ID/SLACK_CLIENT_SECRET
+    # in the process environment and -- whenever oauth_settings isn't explicitly
+    # passed, which is exactly this branch -- silently builds its own default
+    # OAuthSettings + file-based InstallationStore, overriding `token` entirely
+    # ("`token` ... will be ignored"). Both vars are always in .env for the OAuth
+    # branch below, so pop them here to stop Bolt's auto-detection; nothing else
+    # in this module reads them from os.environ (OAuthSettings below is built
+    # explicitly from _slack_settings, not env auto-detection).
+    os.environ.pop("SLACK_CLIENT_ID", None)
+    os.environ.pop("SLACK_CLIENT_SECRET", None)
     app = App(
         token=_slack_settings.slack_bot_token,
         signing_secret=_slack_settings.slack_signing_secret,
