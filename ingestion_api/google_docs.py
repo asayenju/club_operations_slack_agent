@@ -1,9 +1,10 @@
 from collections.abc import Iterator
 from typing import Any, TypedDict
 
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-from common.google_credentials_store import get_google_credentials
+from common.config import get_ingestion_settings
 
 
 HEADING_STYLES = {f"HEADING_{level}" for level in range(1, 7)}
@@ -21,7 +22,16 @@ class DocumentSection(TypedDict):
 
 
 def get_docs_service(workspace_id: str) -> Any:
-    credentials = get_google_credentials(workspace_id, GOOGLE_READ_SCOPES)
+    token_path = get_ingestion_settings().google_token_path
+    if not token_path.exists():
+        raise FileNotFoundError(
+            f"Google OAuth token not found at {token_path}. "
+            "Run: python -m tools.google_auth_bootstrap"
+        )
+    credentials = Credentials.from_authorized_user_file(
+        str(token_path),
+        GOOGLE_READ_SCOPES,
+    )
     return build("docs", "v1", credentials=credentials, cache_discovery=False)
 
 

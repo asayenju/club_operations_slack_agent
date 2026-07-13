@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings
-from common.google_credentials_store import WorkspaceGoogleCredentialsStore
 from common.slack_ingestion import list_monitored_channels, run_channel_backfill
 from common.slack_installation_store import SupabaseInstallationStore
 from common.slack_scopes import verify_slack_scopes
@@ -73,12 +72,14 @@ async def lifespan(app: FastAPI):
     task = None
     if poll_interval > 0:
         def _poll_all_workspaces() -> None:
-            """Poll every workspace with a connected Google account (#66) --
-            Drive is no longer a single shared account."""
-            workspace_ids = WorkspaceGoogleCredentialsStore(_get_supabase()).list_workspace_ids()
+            """Poll every workspace that has connected a Drive folder. Google
+            auth is a single shared account (secrets/club_token.json);
+            workspace_id scopes the folder registry, not the credential."""
+            from ingestion_api.drive_repository import SupabaseDriveRegistry
+            workspace_ids = SupabaseDriveRegistry(_get_supabase()).list_workspace_ids()
             if not workspace_ids:
                 print(
-                    "[poll] no workspaces have connected Google Drive yet -- "
+                    "[poll] no workspaces have connected a Drive folder yet -- "
                     "run /connect-folder in Slack to connect one"
                 )
                 return

@@ -1,22 +1,22 @@
-"""Issue #74 review (Hailee): after moving to per-workspace Google Drive
-credentials, a deployment with zero connected workspaces (e.g. the existing
-workspace that hasn't re-run /connect-folder under the new OAuth client yet)
-polled silently -- the loop just iterated nothing, no error, no log line.
-These pin the fix: it must say so explicitly."""
+"""Drive polling iterates every workspace that has connected a folder. Google
+auth is a single shared account (secrets/club_token.json), so the list of
+workspaces to poll comes from the connected-folder registry, not a per-workspace
+credential store. A deployment with zero connected folders must no-op with an
+explicit log line rather than iterating nothing silently."""
 
 from types import SimpleNamespace
 
 from tools import drive_poll_worker
 
 
-def test_poll_all_workspaces_warns_when_none_connected(monkeypatch, caplog):
+def test_poll_all_workspaces_logs_when_none_connected(monkeypatch, caplog):
     monkeypatch.setattr(drive_poll_worker, "_get_supabase", lambda: SimpleNamespace())
     monkeypatch.setattr(
-        drive_poll_worker, "WorkspaceGoogleCredentialsStore",
+        drive_poll_worker, "SupabaseDriveRegistry",
         lambda supabase: SimpleNamespace(list_workspace_ids=lambda: []),
     )
 
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("INFO"):
         drive_poll_worker._poll_all_workspaces()
 
     assert any("connect-folder" in record.message for record in caplog.records)
@@ -25,7 +25,7 @@ def test_poll_all_workspaces_warns_when_none_connected(monkeypatch, caplog):
 def test_poll_all_workspaces_polls_each_connected_workspace(monkeypatch):
     monkeypatch.setattr(drive_poll_worker, "_get_supabase", lambda: SimpleNamespace())
     monkeypatch.setattr(
-        drive_poll_worker, "WorkspaceGoogleCredentialsStore",
+        drive_poll_worker, "SupabaseDriveRegistry",
         lambda supabase: SimpleNamespace(list_workspace_ids=lambda: ["T_A", "T_B"]),
     )
     polled = []

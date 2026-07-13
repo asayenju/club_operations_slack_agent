@@ -145,11 +145,11 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 To install into a workspace, visit `http://<host>:<SLACK_PORT>/slack/install`
 (default port `3000`) and complete Slack's OAuth consent screen.
 
-Every command (except `/connect-folder`/`/disconnect-folder`, still
-single-workspace pending #66's per-workspace Google Drive OAuth) trusts
-Bolt's own OAuth-based authorization rather than checking against a static
-`WORKSPACE_ID` — if a handler runs at all, the team is genuinely installed
-(issue #63).
+Every command trusts Bolt's own OAuth-based authorization rather than checking
+against a static `WORKSPACE_ID` — if a handler runs at all, the team is
+genuinely installed (issue #63). `/connect-folder`/`/disconnect-folder` connect
+folders per workspace against the single shared Google account (see
+[Connected Drive folders](#connected-drive-folders)).
 
 Uninstalling the app, or Slack revoking its bot token, removes that
 workspace's row from `slack_installations` and stops watching its monitored
@@ -248,20 +248,24 @@ supabase/migrations/20260708000200_workspace_admin_settings.sql
 supabase/migrations/20260709000000_google_oauth_states.sql
 ```
 
-**Upgrading a workspace that already had Drive connected via the old shared
-`secrets/club_token.json`?** That file stops being read entirely after this
-change, and — unlike the Slack bot token — **there is no way to seed its
-refresh token into the new table.** Google refresh tokens are bound to the
-OAuth client that issued them; the old token was issued to a Desktop client,
-this feature registers a different Web application client
-(`GOOGLE_OAUTH_CLIENT_ID`), so the old token would fail the moment the app
-tried to refresh it. The only fix is re-running `/connect-folder` in that
-workspace to go through the new OAuth flow and get a fresh token. Until an
-admin does that, Drive/Docs/Sheets sync for that workspace is inactive — the
-background poll loop and `tools/drive_poll_worker.py` both log a warning
-every cycle when zero workspaces are connected, rather than silently doing
-nothing, so this is visible in the logs instead of only discovered by
-noticing ingestion stopped.
+**Google authentication is a single shared account.** All workspaces read
+Drive/Docs/Sheets through one Google account authorized once via a local
+bootstrap. Put an OAuth 2.0 **Desktop app** `client_secret.json` in the repo
+root, then run it once:
+
+```bash
+python -m tools.google_auth_bootstrap
+```
+
+This opens a browser for consent and writes the refresh token to
+`secrets/club_token.json` (path overridable via `GOOGLE_TOKEN_PATH`). The
+ingestion API, Drive sync worker, and `/connect-folder` all load that file;
+`workspace_id` scopes the connected-folder registry, not the credential.
+`/connect-folder` connects a folder directly — there is no per-workspace
+Google consent link. If the token file is missing, Drive/Docs/Sheets calls
+raise a clear "run `python -m tools.google_auth_bootstrap`" error, and the
+background poll loop and `tools/drive_poll_worker.py` log a no-op line when no
+workspace has connected a folder yet.
 
 Set these environment values for the Slack bot, ingestion API, and Drive sync
 worker:
@@ -271,18 +275,9 @@ SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 VOYAGE_API_KEY=...
 WORKSPACE_ID=...
-GOOGLE_OAUTH_CLIENT_ID=...
-GOOGLE_OAUTH_CLIENT_SECRET=...
-PUBLIC_BASE_URL=...
+GOOGLE_TOKEN_PATH=secrets/club_token.json
 DRIVE_POLL_INTERVAL_SECONDS=300
 ```
-
-`GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` come from a Google Cloud
-OAuth 2.0 **Web application** client (not a Desktop client) with the Docs,
-Drive, and Sheets read-only scopes enabled, and `PUBLIC_BASE_URL` (e.g.
-`https://your-app.fly.dev`, same host as [HTTP mode +
-hosting](#http-mode--hosting-issue-62)) with a redirect URI of
-`{PUBLIC_BASE_URL}/google/oauth_redirect` registered on that client.
 
 `SUPABASE_SERVICE_KEY` is also accepted as an alias for
 `SUPABASE_SERVICE_ROLE_KEY`; when both are set, `SUPABASE_SERVICE_ROLE_KEY`
@@ -397,15 +392,13 @@ SUPABASE_URL=...
 SUPABASE_SERVICE_KEY=...
 VOYAGE_API_KEY=...
 WORKSPACE_ID=...
-GOOGLE_OAUTH_CLIENT_ID=...
-GOOGLE_OAUTH_CLIENT_SECRET=...
-PUBLIC_BASE_URL=...
+GOOGLE_TOKEN_PATH=secrets/club_token.json
 ```
 
-Never expose `SUPABASE_SERVICE_KEY`, `VOYAGE_API_KEY`, `GOOGLE_OAUTH_CLIENT_SECRET`,
-or any workspace's stored refresh token to a browser or commit them to Git —
-refresh tokens are encrypted at rest (`APP_ENCRYPTION_KEY`, same mechanism as
-Slack bot tokens) but the Google OAuth client secret itself is not.
+Never expose `SUPABASE_SERVICE_KEY`, `VOYAGE_API_KEY`, `client_secret.json`, or
+the generated `secrets/club_token.json` to a browser or commit them to Git —
+both are gitignored, and the token grants read access to the shared Google
+account's Drive.
 
 Docs/Sheets/Drive access is per-workspace (issue #66) via `/connect-folder`'s
 OAuth flow — see [Connected Drive folders](#connected-drive-folders). There is

@@ -12,13 +12,6 @@ from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk import WebClient
 
 from common.config import get_ingestion_settings, get_slack_settings
-from common.google_credentials_store import WorkspaceGoogleCredentialsStore
-from common.google_oauth_state_store import GoogleOAuthStateStore
-from common.google_oauth_flow import (
-    GOOGLE_DRIVE_SCOPES,
-    build_authorization_url,
-    exchange_code_for_refresh_token,
-)
 from common.slack_ingestion import (
     delete_monitored_channels_for_workspace,
     delete_slack_message,
@@ -96,22 +89,44 @@ def _on_install_failure(args: FailureArgs):
     return args.default.failure(args)
 
 
-app = App(
-    signing_secret=_slack_settings.slack_signing_secret,
-    installation_store=SupabaseInstallationStore(_get_supabase()),
-    installation_store_bot_only=True,
-    oauth_settings=OAuthSettings(
-        client_id=_slack_settings.slack_client_id,
-        client_secret=_slack_settings.slack_client_secret,
-        scopes=BOT_SCOPES,
-        installation_store_bot_only=True,
-        callback_options=CallbackOptions(success=_on_install_success, failure=_on_install_failure),
-    ),
-    token_verification_enabled=os.environ.get(
-        "SLACK_TOKEN_VERIFICATION_ENABLED", "false"
-    ).lower()
-    == "true",
+_token_verification_enabled = (
+    os.environ.get("SLACK_TOKEN_VERIFICATION_ENABLED", "false").lower() == "true"
 )
+
+if _slack_settings.slack_bot_token:
+    # Socket Mode / single-workspace local dev: authenticate with a static bot
+    # token instead of the multi-workspace OAuth install flow. No public URL is
+    # needed -- __main__ starts a SocketModeHandler that dials out to Slack.
+    #
+    # Bolt's own App() constructor auto-detects SLACK_CLIENT_ID/SLACK_CLIENT_SECRET
+    # in the process environment and -- whenever oauth_settings isn't explicitly
+    # passed, which is exactly this branch -- silently builds its own default
+    # OAuthSettings + file-based InstallationStore, overriding `token` entirely
+    # ("`token` ... will be ignored"). Both vars are always in .env for the OAuth
+    # branch below, so pop them here to stop Bolt's auto-detection; nothing else
+    # in this module reads them from os.environ (OAuthSettings below is built
+    # explicitly from _slack_settings, not env auto-detection).
+    os.environ.pop("SLACK_CLIENT_ID", None)
+    os.environ.pop("SLACK_CLIENT_SECRET", None)
+    app = App(
+        token=_slack_settings.slack_bot_token,
+        signing_secret=_slack_settings.slack_signing_secret,
+        token_verification_enabled=_token_verification_enabled,
+    )
+else:
+    app = App(
+        signing_secret=_slack_settings.slack_signing_secret,
+        installation_store=SupabaseInstallationStore(_get_supabase()),
+        installation_store_bot_only=True,
+        oauth_settings=OAuthSettings(
+            client_id=_slack_settings.slack_client_id,
+            client_secret=_slack_settings.slack_client_secret,
+            scopes=BOT_SCOPES,
+            installation_store_bot_only=True,
+            callback_options=CallbackOptions(success=_on_install_success, failure=_on_install_failure),
+        ),
+        token_verification_enabled=_token_verification_enabled,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -448,39 +463,10 @@ def ensure_drive_sync_admin(command, respond) -> bool:
     return False
 
 
-def ensure_drive_connected(command, respond) -> bool:
-    """Each workspace connects its own Google account (issue #66) -- no more
-    single shared Drive credential. If this workspace hasn't completed that
-    OAuth flow yet, send its admin a connection link instead of failing
-    deeper inside DriveSyncService."""
-    workspace_id = command["team_id"]
-    supabase = _get_supabase()
-    store = WorkspaceGoogleCredentialsStore(supabase)
-    if store.is_connected(workspace_id):
-        return True
-    try:
-        state = GoogleOAuthStateStore(supabase).create(workspace_id, command.get("user_id"))
-        url = build_authorization_url(state)
-    except Exception:
-        logger.exception("Failed to build Google authorization URL")
-        respond(
-            response_type="ephemeral",
-            text="I couldn't start the Google Drive connection right now.",
-        )
-        return False
-    respond(
-        response_type="ephemeral",
-        text=f"Connect Google Drive for this workspace first: {url}",
-    )
-    return False
-
-
 @app.command("/connect-folder")
 def handle_connect_folder_command(ack, command, respond):
     ack()
     if not ensure_drive_sync_admin(command, respond):
-        return
-    if not ensure_drive_connected(command, respond):
         return
     folder_reference = str(command.get("text", "")).strip()
     if not folder_reference:
@@ -517,8 +503,6 @@ def handle_connect_folder_command(ack, command, respond):
 def handle_disconnect_folder_command(ack, command, respond):
     ack()
     if not ensure_drive_sync_admin(command, respond):
-        return
-    if not ensure_drive_connected(command, respond):
         return
     folder_reference = str(command.get("text", "")).strip()
     if not folder_reference:
@@ -609,7 +593,11 @@ def _get_monitored_channels(workspace_id: str) -> dict[str, str]:
 
 @app.event("message")
 def handle_message(event, context, logger):
-    workspace_id = context["team_id"]
+    # HTTP mode populates context["team_id"]; Socket Mode message events don't,
+    # so fall back to the event's own team field.
+    workspace_id = context.get("team_id") or event.get("team")
+    if not workspace_id:
+        return
     channel_id = event.get("channel", "")
     monitored = _get_monitored_channels(workspace_id)
     if channel_id not in monitored:
@@ -662,10 +650,6 @@ def _forget_workspace(team_id: str | None, *, reason: str) -> None:
         logger.info(f"[{reason}] removed {removed} monitored channel(s) for {team_id}")
     except Exception:
         logger.exception(f"[{reason}] failed to remove monitored channels for {team_id}")
-    try:
-        WorkspaceGoogleCredentialsStore(supabase).delete(team_id)
-    except Exception:
-        logger.exception(f"[{reason}] failed to remove Google Drive credentials for {team_id}")
     try:
         WorkspaceAdminSettingsStore(supabase).delete(team_id)
     except Exception:
@@ -728,64 +712,18 @@ async def health():
     return {"status": "ok", "service": "slack-bot"}
 
 
-# ---------------------------------------------------------------------------
-# Google Drive OAuth (issue #66)
-#
-# Mirrors the Slack OAuth install flow above: one registered Google OAuth
-# client shared by the whole app, each workspace's admin completes their own
-# consent. `state` is an unguessable, single-use token issued by
-# GoogleOAuthStateStore.create() and redeemed via .consume() below -- the
-# callback never trusts client-supplied team_id/user_id directly (issue #74
-# review, Aman: a plain "{team_id}|{user_id}" state was forgeable).
-# ---------------------------------------------------------------------------
-
-@http_app.get("/google/oauth_redirect")
-async def google_oauth_redirect(request: Request):
-    from fastapi.responses import PlainTextResponse
-
-    params = request.query_params
-    error = params.get("error")
-    if error:
-        return PlainTextResponse(f"Google authorization failed: {error}", status_code=400)
-
-    code = params.get("code")
-    state = params.get("state") or ""
-    if not code or not state:
-        return PlainTextResponse("Missing code or state in callback.", status_code=400)
-
-    supabase = _get_supabase()
-    consumed = GoogleOAuthStateStore(supabase).consume(state)
-    if consumed is None:
-        # Covers unknown, forged, expired, and already-used state tokens
-        # alike -- the caller doesn't get to distinguish which, since that
-        # itself would leak information to whoever is probing this endpoint.
-        return PlainTextResponse(
-            "This connection link is invalid, expired, or already used. Run /connect-folder again.",
-            status_code=400,
-        )
-    workspace_id, user_id = consumed
-
-    try:
-        refresh_token = exchange_code_for_refresh_token(code)
-    except Exception:
-        logger.exception(f"[google_oauth] token exchange failed for workspace {workspace_id}")
-        return PlainTextResponse(
-            "Couldn't complete the Google connection. Try /connect-folder again.",
-            status_code=502,
-        )
-
-    store = WorkspaceGoogleCredentialsStore(supabase)
-    store.save(
-        workspace_id,
-        refresh_token,
-        GOOGLE_DRIVE_SCOPES,
-        connected_by_user_id=user_id or None,
-    )
-    return PlainTextResponse("Google Drive connected. You can close this tab and run /connect-folder again in Slack.")
-
-
 if __name__ == "__main__":
-    import uvicorn
-
     threading.Thread(target=_run_backfill, daemon=True).start()
-    uvicorn.run(http_app, host="0.0.0.0", port=_slack_settings.slack_port)
+
+    if _slack_settings.slack_app_token:
+        # Socket Mode: outbound WebSocket to Slack, no public URL/tunnel needed
+        # (ideal when an ISP blocks tunneling services). Requires slack_bot_token
+        # + slack_app_token; the OAuth/HTTP routes above are not served here.
+        from slack_bolt.adapter.socket_mode import SocketModeHandler
+
+        logger.info("Starting Slack bot in Socket Mode (no public URL needed)")
+        SocketModeHandler(app, _slack_settings.slack_app_token).start()
+    else:
+        import uvicorn
+
+        uvicorn.run(http_app, host="0.0.0.0", port=_slack_settings.slack_port)

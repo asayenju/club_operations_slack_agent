@@ -1,8 +1,9 @@
 from typing import Any
 
 import gspread
+from google.oauth2.credentials import Credentials
 
-from common.google_credentials_store import get_google_credentials
+from common.config import get_ingestion_settings
 
 GOOGLE_READ_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
@@ -11,9 +12,18 @@ GOOGLE_READ_SCOPES = [
 
 
 def get_sheets_client(workspace_id: str) -> gspread.Client:
-    """Authenticates with that workspace's connected Google account and
+    """Authenticates with the shared Google account (bootstrapped token) and
     returns a gspread client."""
-    credentials = get_google_credentials(workspace_id, GOOGLE_READ_SCOPES)
+    token_path = get_ingestion_settings().google_token_path
+    if not token_path.exists():
+        raise FileNotFoundError(
+            f"Google OAuth token not found at {token_path}. "
+            "Run: python -m tools.google_auth_bootstrap"
+        )
+    credentials = Credentials.from_authorized_user_file(
+        str(token_path),
+        GOOGLE_READ_SCOPES,
+    )
     return gspread.Client(auth=credentials)
 
 

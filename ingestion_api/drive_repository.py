@@ -35,6 +35,9 @@ class DriveRegistry(Protocol):
     def list_folders(self, workspace_id: str) -> list[ConnectedFolder]:
         ...
 
+    def list_workspace_ids(self) -> list[str]:
+        ...
+
     def get_folder(self, workspace_id: str, folder_id: str) -> ConnectedFolder | None:
         ...
 
@@ -111,6 +114,16 @@ class SupabaseDriveRegistry:
             .execute()
         )
         return [ConnectedFolder(**row) for row in response.data or []]
+
+    def list_workspace_ids(self) -> list[str]:
+        """Distinct workspaces with at least one connected folder -- drives
+        Drive polling now that Google auth is a single shared account."""
+        response = (
+            self.client.table("connected_folders")
+            .select("workspace_id")
+            .execute()
+        )
+        return sorted({row["workspace_id"] for row in response.data or []})
 
     def get_folder(self, workspace_id: str, folder_id: str) -> ConnectedFolder | None:
         response = (

@@ -6,6 +6,7 @@ common/crypto.py. Only bot-scope installs are supported (no user tokens) —
 matches how every command in this app already authenticates.
 """
 
+import json
 from datetime import datetime, timezone
 from logging import Logger, getLogger
 from typing import Any, Optional
@@ -40,7 +41,7 @@ class SupabaseInstallationStore(InstallationStore):
             "app_id": installation.app_id,
             "installed_by_user_id": installation.user_id,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-            "raw_installation": raw,
+            "raw_installation": _json_safe(raw),
         }
         (
             self._supabase.table("slack_installations")
@@ -49,6 +50,10 @@ class SupabaseInstallationStore(InstallationStore):
         )
 
     def save_bot(self, bot: Bot) -> None:
+        raw = bot.to_dict()
+        # Encrypt the token inside raw_installation too (parity with save()) --
+        # the plaintext token must never sit in the jsonb column.
+        raw["bot_token"] = encrypt(raw["bot_token"]) if raw.get("bot_token") else None
         row = {
             "team_id": bot.team_id,
             "enterprise_id": bot.enterprise_id,
@@ -59,7 +64,7 @@ class SupabaseInstallationStore(InstallationStore):
             "bot_scopes": _scopes_to_str(bot.bot_scopes),
             "app_id": bot.app_id,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-            "raw_installation": bot.to_dict(),
+            "raw_installation": _json_safe(raw),
         }
         (
             self._supabase.table("slack_installations")
@@ -166,6 +171,13 @@ _INSTALLATION_FIELDS = {
     "incoming_webhook_configuration_url", "is_enterprise_install", "token_type", "installed_at",
     "custom_values",
 }
+
+
+def _json_safe(value: Any) -> Any:
+    """Round-trip through JSON so non-serializable values (e.g. the datetime
+    slack_sdk puts in `installed_at`) become storable in the raw_installation
+    jsonb column."""
+    return json.loads(json.dumps(value, default=str))
 
 
 def _scopes_to_str(scopes: Any) -> str:
